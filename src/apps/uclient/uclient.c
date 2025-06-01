@@ -356,7 +356,7 @@ static int wait_fd(int fd, unsigned int cycle) {
         gettimeofday(&ctime, NULL);
       } else {
         break;
-      }
+      }//uyfuyf
     } while (1);
 
     return rc;
