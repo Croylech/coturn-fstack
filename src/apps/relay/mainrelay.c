@@ -34,6 +34,7 @@
 
 #include "mainrelay.h"
 #include "dbdrivers/dbdriver.h"
+#include "wrappers.h"
 
 #include "prom_server.h"
 
@@ -2954,6 +2955,13 @@ int main(int argc, char **argv) {
 
   IS_TURN_SERVER = 1;
 
+#ifdef USE_FSTACK
+if (ff_init(argc, argv) < 0){
+  fprintf(stderr, "F-stack Initialization failed \n");
+  exit(EXIT_FAILURE);
+}
+#endif
+
   TURN_MUTEX_INIT(&turn_params.tls_mutex);
 
   set_execdir();
@@ -3338,9 +3346,11 @@ int main(int argc, char **argv) {
 
   drop_privileges();
   start_prometheus_server();
-
+#ifdef USE_FSTACK
+  ff_run(run_listener_server, &(turn_params,listener));
+#else
   run_listener_server(&(turn_params.listener));
-
+#endif
   disconnect_database();
 
   return 0;
