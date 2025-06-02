@@ -46,6 +46,7 @@
 #endif
 #endif
 
+#include "wrappers.h"
 #include "apputils.h"
 #include "ns_turn_utils.h"
 #include "stun_buffer.h"
@@ -158,7 +159,7 @@ static int run_stunclient(const char *rip, int rport, int *port, bool *rfc5780, 
     ssize_t slen = get_ioa_addr_len(&remote_addr);
 
     do {
-      len = sendto(udp_fd, req.getRawBuffer(), req.getSize(), 0, (struct sockaddr *)&remote_addr, (socklen_t)slen);
+      len = my_sendto(udp_fd, req.getRawBuffer(), req.getSize(), 0, (struct sockaddr *)&remote_addr, (socklen_t)slen);
     } while (len < 0 && (socket_eintr() || socket_enobufs() || socket_eagain()));
 
     if (len < 0) {
@@ -314,7 +315,7 @@ static int run_stunclient(const char *rip, int rport, int *port, bool *rfc5780, 
     uint32_t slen = get_ioa_addr_len(&remote_addr);
 
     do {
-      len = sendto(udp_fd, buf.buf, buf.len, 0, (struct sockaddr *)&remote_addr, (socklen_t)slen);
+      len = my_sendto(udp_fd, buf.buf, buf.len, 0, (struct sockaddr *)&remote_addr, (socklen_t)slen);
     } while (len < 0 && (socket_eintr() || socket_enobufs() || socket_eagain()));
 
     if (len < 0) {

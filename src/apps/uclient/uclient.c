@@ -38,6 +38,7 @@
 #include "ns_turn_utils.h"
 #include "session.h"
 #include "startuclient.h"
+#include "wrappers.h"
 
 #if defined(__linux__)
 #include <sys/select.h>
@@ -332,6 +333,13 @@ static int wait_fd(int fd, unsigned int cycle) {
 
     int rc = 0;
 
+        //jose
+    int epfd = my_epoll_create(1);
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = fd;
+    my_epoll_ctl(epfd,EPOLL_CTL_ADD,fd,&ev);
+
     do {
       struct timeval timeout = {0, 0};
       if (cycle == 0) {
@@ -351,7 +359,9 @@ static int wait_fd(int fd, unsigned int cycle) {
           }
         }
       }
-      rc = select(fd + 1, &fds, NULL, NULL, &timeout);
+
+      struct epoll_event events[1];
+      rc = my_epoll_wait(epfd,events,1,timeout);
       if ((rc < 0) && socket_eintr()) {
         gettimeofday(&ctime, NULL);
       } else {

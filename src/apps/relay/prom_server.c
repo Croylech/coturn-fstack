@@ -35,6 +35,7 @@
 #include "prom_server.h"
 #include "mainrelay.h"
 #include "ns_turn_utils.h"
+#include "wrappers.h"
 #if !defined(WINDOWS)
 #include <errno.h>
 #include <sys/socket.h>
@@ -310,7 +311,7 @@ int is_ipv6_enabled(void) {
     ret = errno != EAFNOSUPPORT;
   } else {
     ret = 1;
-    close(fd);
+    my_close(fd);
   }
 #endif /* AF_INET6 */
 

@@ -39,7 +39,7 @@ set(SOURCE_FILES
     )
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
-target_link_libraries(${PROJECT_NAME} PRIVATE turnclient)
+target_link_libraries(${PROJECT_NAME} PRIVATE turnclient fstack_wrappers)
 set_target_properties(${PROJECT_NAME} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     )

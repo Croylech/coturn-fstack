@@ -664,7 +664,7 @@ start_udp_cycle:
                  &errcode);
     // try again...
     do {
-      bsize = recvfrom(fd, ioa_network_buffer_data(elem), ioa_network_buffer_get_capacity_udp(), flags,
+      bsize = my_recvfrom(fd, ioa_network_buffer_data(elem), ioa_network_buffer_get_capacity_udp(), flags,
                        (struct sockaddr *)&(server->sm.m.sm.nd.src_addr), &slen);
     } while (bsize < 0 && socket_eintr());
 

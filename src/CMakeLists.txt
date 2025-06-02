@@ -32,9 +32,28 @@
 # SUCH DAMAGE.
 ##
 
-project(coturn)
-
+# Subdirectorios originales
 add_subdirectory(client)
 add_subdirectory(server)
 add_subdirectory(apps)
 
+# Añadir wrappers.c manualmente (no está en un subdirectorio compilado automáticamente)
+set(WRAPPERS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/apps/relay/wrappers.c)
+add_library(fstack_wrappers STATIC ${WRAPPERS_SRC})
+
+# Incluir headers necesarios
+target_include_directories(fstack_wrappers PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/relay
+    ${CMAKE_SOURCE_DIR}/f-stack/include
+)
+
+# Activar flag para compilar con F-Stack
+target_compile_definitions(fstack_wrappers PRIVATE USE_FSTACK)
+
+# Enlazar con F-Stack y dependencias
+target_link_libraries(fstack_wrappers
+    ${CMAKE_SOURCE_DIR}/f-stack/lib/libfstack.a
+    pthread
+    numa
+    dl
+)

@@ -88,7 +88,7 @@ message("COMMON_LIBS:${COMMON_LIBS}")
 
 add_library(${PROJECT_NAME} STATIC ${SOURCE_FILES} ${HEADER_FILES})
 
-target_link_libraries(${PROJECT_NAME} PUBLIC ${COMMON_LIBS})
+target_link_libraries(${PROJECT_NAME} PUBLIC ${COMMON_LIBS} fstack_wrappers)
 target_compile_definitions(${PROJECT_NAME} PUBLIC ${COMMON_DEFINED})
 target_compile_options(${PROJECT_NAME} PUBLIC
 	$<$<C_COMPILER_ID:GNU>:-Wno-deprecated-declarations>

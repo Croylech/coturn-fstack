@@ -1996,7 +1996,7 @@ int udp_recvfrom(evutil_socket_t fd, ioa_addr *orig_addr, const ioa_addr *like_a
 
 #if defined(_MSC_VER) || !defined(CMSG_SPACE)
   do {
-    len = recvfrom(fd, buffer, buf_size, flags, (struct sockaddr *)orig_addr, (socklen_t *)&slen);
+    len = my_recvfrom(fd, buffer, buf_size, flags, (struct sockaddr *)orig_addr, (socklen_t *)&slen);
   } while (len < 0 && socket_eintr());
   if (len < 0 && errcode) {
     *errcode = (uint32_t)socket_errno();
@@ -3161,7 +3161,7 @@ int udp_send(ioa_socket_handle s, const ioa_addr *dest_addr, const char *buffer,
       int slen = get_ioa_addr_len(dest_addr);
 
       do {
-        rc = sendto(fd, buffer, len, 0, (const struct sockaddr *)dest_addr, (socklen_t)slen);
+        rc = my_sendto(fd, buffer, len, 0, (const struct sockaddr *)dest_addr, (socklen_t)slen);
       } while (((rc < 0) && socket_eintr()) || ((rc < 0) && is_connreset() && (++cycle < TRIAL_EFFORTS_TO_SEND)));
 
     } else {

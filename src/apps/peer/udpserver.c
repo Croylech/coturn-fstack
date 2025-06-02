@@ -54,14 +54,14 @@ static void udp_server_input_handler(evutil_socket_t fd, short what, void *arg) 
   ssize_t len = 0;
 
   do {
-    len = recvfrom(fd, buffer.buf, sizeof(buffer.buf) - 1, 0, (struct sockaddr *)&remote_addr, (socklen_t *)&slen);
+    len = my_recvfrom(fd, buffer.buf, sizeof(buffer.buf) - 1, 0, (struct sockaddr *)&remote_addr, (socklen_t *)&slen);
   } while (len < 0 && socket_eintr());
 
   buffer.len = len;
 
   if (len >= 0) {
     do {
-      len = sendto(fd, buffer.buf, buffer.len, 0, (const struct sockaddr *)&remote_addr, (socklen_t)slen);
+      len = my_sendto(fd, buffer.buf, buffer.len, 0, (const struct sockaddr *)&remote_addr, (socklen_t)slen);
     } while (len < 0 && (socket_eintr() || socket_enobufs() || socket_eagain()));
   }
 }

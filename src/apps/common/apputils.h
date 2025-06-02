@@ -38,6 +38,7 @@
 #include <event2/util.h> // for evutil_socket_t
 
 #include "ns_turn_openssl.h"
+#include "wrappers.h"
 
 #include "ns_turn_defs.h"
 #include "ns_turn_ioaddr.h"
@@ -125,7 +126,7 @@ typedef struct _oauth_key_data_raw oauth_key_data_raw;
 #else
 /** Do the platform-specific call needed to close a socket returned from
     my_socket() or accept(). */
-#define socket_closesocket(s) close(s)
+#define socket_closesocket(s) my_close(s)
 #endif
 
 void read_spare_buffer(evutil_socket_t fd);

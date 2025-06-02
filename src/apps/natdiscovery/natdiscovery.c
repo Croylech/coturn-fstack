@@ -44,6 +44,7 @@
 #include <unistd.h>
 #endif
 
+#include "wrappers.h"
 #include "apputils.h"
 #include "ns_turn_ioalib.h"
 #include "ns_turn_utils.h"
@@ -145,7 +146,7 @@ static int stunclient_send(int sockfd, ioa_addr *local_addr, int *local_port, io
     int slen = get_ioa_addr_len(remote_addr);
 
     do {
-      len = sendto(sockfd, req.getRawBuffer(), req.getSize(), 0, (struct sockaddr *)remote_addr, (socklen_t)slen);
+      len = my_sendto(sockfd, req.getRawBuffer(), req.getSize(), 0, (struct sockaddr *)remote_addr, (socklen_t)slen);
     } while (len < 0 && (socket_eintr() || socket_enobufs() || socket_eagain()));
 
     if (len < 0) {
@@ -383,7 +384,7 @@ static int stunclient_send(stun_buffer *buf, int sockfd, ioa_addr *local_addr, i
     uint32_t slen = get_ioa_addr_len(remote_addr);
 
     do {
-      len = sendto(sockfd, buf->buf, buf->len, 0, (struct sockaddr *)remote_addr, (socklen_t)slen);
+      len = my_sendto(sockfd, buf->buf, buf->len, 0, (struct sockaddr *)remote_addr, (socklen_t)slen);
     } while (len < 0 && (socket_eintr() || socket_enobufs() || socket_eagain()));
 
     if (len < 0) {
