@@ -2956,10 +2956,19 @@ int main(int argc, char **argv) {
   IS_TURN_SERVER = 1;
 
 #ifdef USE_FSTACK
-if (ff_init(argc, argv) < 0){
-  fprintf(stderr, "F-stack Initialization failed \n");
-  exit(EXIT_FAILURE);
-}
+  // Solo argumentos de F-Stack
+  char *fstack_args[] = {
+    argv[0],
+    "-c", "/home/jose/coturn-modded/coturn-fstack/f-stack/config.ini",
+    "--proc-type=primary",
+    "--file-prefix=fstack_turn",
+    NULL
+  };
+
+  if (ff_init(6, fstack_args) < 0) {
+    fprintf(stderr, "F-Stack initialization failed\n");
+    exit(EXIT_FAILURE);
+  }
 #endif
 
   TURN_MUTEX_INIT(&turn_params.tls_mutex);
@@ -3347,7 +3356,10 @@ if (ff_init(argc, argv) < 0){
   drop_privileges();
   start_prometheus_server();
 #ifdef USE_FSTACK
-  ff_run(run_listener_server, &(turn_params,listener));
+if (ff_run(run_listener_server, &(turn_params.listener)) < 0){
+  fprintf(stderr, "F-stack run failed\n");
+  exit(EXIT_FAILURE);
+}
 #else
   run_listener_server(&(turn_params.listener));
 #endif
