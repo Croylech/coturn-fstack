@@ -69,7 +69,7 @@ static int init_socket(int *socketfd, ioa_addr *local_addr, int local_port, ioa_
     addr_set_port(local_addr, local_port);
   }
 
-  *socketfd = my_socketremote_addr->ss.sa_family, SOCK_DGRAM, 0);
+  *socketfd = my_socket(remote_addr->ss.sa_family, SOCK_DGRAM, 0);
   if (udp_fd < 0) {
     err(-1, NULL);
   }
@@ -344,7 +344,7 @@ static int run_stunclient_lifetime(int timer, ioa_addr *local_addr, ioa_addr *re
 static int init_socket(int *socketfd, ioa_addr *local_addr, int local_port, ioa_addr *remote_addr) {
   int ret = 0;
 
-  *socketfd = my_socketremote_addr->ss.sa_family, CLIENT_DGRAM_SOCKET_TYPE, CLIENT_DGRAM_SOCKET_PROTOCOL);
+  *socketfd = my_socket(remote_addr->ss.sa_family, CLIENT_DGRAM_SOCKET_TYPE, CLIENT_DGRAM_SOCKET_PROTOCOL);
   if (udp_fd < 0) {
     err(-1, NULL);
   }

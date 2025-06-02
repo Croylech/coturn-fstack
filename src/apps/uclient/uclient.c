@@ -361,7 +361,8 @@ static int wait_fd(int fd, unsigned int cycle) {
       }
 
       struct epoll_event events[1];
-      rc = my_epoll_wait(epfd,events,1,timeout);
+      int timeout_ms = timeout.tv_sec * 1000 + timeout.tv_usec/1000;
+      rc = my_epoll_wait(epfd,events,1,timeout_ms);
       if ((rc < 0) && socket_eintr()) {
         gettimeofday(&ctime, NULL);
       } else {

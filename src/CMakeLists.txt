@@ -32,28 +32,47 @@
 # SUCH DAMAGE.
 ##
 
-# Subdirectorios originales
+include_directories(
+  ${CMAKE_SOURCE_DIR}/src/Fstack
+  /usr/local/include
+)
+
 add_subdirectory(client)
 add_subdirectory(server)
 add_subdirectory(apps)
 
-# Añadir wrappers.c manualmente (no está en un subdirectorio compilado automáticamente)
-set(WRAPPERS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/apps/relay/wrappers.c)
+# Añadir wrappers.c manualmente
+set(WRAPPERS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/Fstack/wrappers.c)
 add_library(fstack_wrappers STATIC ${WRAPPERS_SRC})
 
-# Incluir headers necesarios
+# Busca DPDK con pkg-config
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(DPDK REQUIRED libdpdk)
+
+# Incluir headers
 target_include_directories(fstack_wrappers PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/relay
+    ${DPDK_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/Fstack
     ${CMAKE_SOURCE_DIR}/f-stack/include
 )
 
-# Activar flag para compilar con F-Stack
+# Definiciones de compilación
 target_compile_definitions(fstack_wrappers PRIVATE USE_FSTACK)
 
-# Enlazar con F-Stack y dependencias
+# Enlazar correctamente: F-Stack + DPDK + otras dependencias
 target_link_libraries(fstack_wrappers
     ${CMAKE_SOURCE_DIR}/f-stack/lib/libfstack.a
+    ${DPDK_LIBRARIES}
+    -lrte_net_bond
     pthread
     numa
     dl
+)
+
+# Exportación correcta
+install(TARGETS fstack_wrappers EXPORT coturnTargets)
+
+install(EXPORT coturnTargets
+  FILE coturnTargets.cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/coturn
 )
