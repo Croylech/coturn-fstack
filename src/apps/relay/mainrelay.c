@@ -2950,6 +2950,21 @@ static void init_domain(void) {
 #endif
 }
 
+#ifdef USE_FSTACK
+struct FStackRunContext {
+  turnparams_t *params;
+};
+
+static void fstack_main_loop(void *arg) {
+  struct FStackRunContext *ctx = (struct FStackRunContext *)arg;
+  setup_server();  // Ya se apoya en `turn_params`
+  drop_privileges();
+  start_prometheus_server();
+  run_listener_server(&(ctx->params->listener));
+}
+#endif
+
+
 int main(int argc, char **argv) {
   int c = 0;
 
@@ -3280,6 +3295,10 @@ int main(int argc, char **argv) {
 
   // TODO: implement deamon!!! use windows server
 #else
+
+#if defined(USE_FSTACK)
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-Stack mode detected, skipping demonization to maintain DPDK compatibility.\n");
+#else
   if (turn_params.turn_daemon) {
 #if !defined(TURN_HAS_DAEMON)
     pid_t pid = fork();
@@ -3298,6 +3317,7 @@ int main(int argc, char **argv) {
     reset_rtpprintf();
 #endif
   }
+#endif
 
   if (turn_params.pidfile[0]) {
 
@@ -3336,9 +3356,9 @@ int main(int argc, char **argv) {
     }
   }
 #endif
-
+#ifndef USE_FSTACK
   setup_server();
-
+#endif
 #if defined(WINDOWS)
   // TODO: implement it!!! add windows server
 #else
@@ -3352,11 +3372,13 @@ int main(int argc, char **argv) {
   ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
   event_add(ev, NULL);
 #endif
-
+#ifndef USE_FSTACK
   drop_privileges();
   start_prometheus_server();
+#endif
 #ifdef USE_FSTACK
-if (ff_run(run_listener_server, &(turn_params.listener)) < 0){
+struct FStackRunContext ctx = { .params = &turn_params };
+if (ff_run(fstack_main_loop, &ctx) < 0){
   fprintf(stderr, "F-stack run failed\n");
   exit(EXIT_FAILURE);
 }
