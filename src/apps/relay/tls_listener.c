@@ -193,6 +193,7 @@ static int create_server_listener(tls_listener_relay_server_type *server) {
 
   evutil_socket_t tls_listen_fd = -1;
 
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in tls_listener.c - 196\n");
   tls_listen_fd = my_socket(server->addr.ss.sa_family, CLIENT_STREAM_SOCKET_TYPE, CLIENT_STREAM_SOCKET_PROTOCOL);
   if (tls_listen_fd < 0) {
     perror("socket");
@@ -261,7 +262,7 @@ static int sctp_create_server_listener(tls_listener_relay_server_type *server) {
   }
 
   evutil_socket_t tls_listen_fd = -1;
-
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in tls_listener.c - 265");
   tls_listen_fd = my_socket(server->addr.ss.sa_family, SCTP_CLIENT_STREAM_SOCKET_TYPE, SCTP_CLIENT_STREAM_SOCKET_PROTOCOL);
   if (tls_listen_fd < 0) {
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Cannot create SCTP socket listener\n");

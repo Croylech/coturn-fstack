@@ -903,6 +903,8 @@ ioa_socket_handle create_unbound_relay_ioa_socket(ioa_engine_handle e, int famil
 
   switch (st) {
   case UDP_SOCKET:
+    
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in ns_iolib_engine_impl.c - 907");
     fd = my_socket(family, RELAY_DGRAM_SOCKET_TYPE, RELAY_DGRAM_SOCKET_PROTOCOL);
     if (fd < 0) {
       perror("UDP socket");
@@ -911,6 +913,8 @@ ioa_socket_handle create_unbound_relay_ioa_socket(ioa_engine_handle e, int famil
     set_sock_buf_size(fd, UR_CLIENT_SOCK_BUF_SIZE);
     break;
   case TCP_SOCKET:
+
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in ns_iolib_engine_impl.c - 917");
     fd = my_socket(family, RELAY_STREAM_SOCKET_TYPE, RELAY_STREAM_SOCKET_PROTOCOL);
     if (fd < 0) {
       perror("TCP socket");
@@ -1272,6 +1276,7 @@ ccs_end:
    * Section 5.2 of RFC 6062 will not work correctly
    * for those OSes (for example, Linux pre-3.9 kernel).
    */
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in ns_iolib_engine_impl.c - 1279");
   s->fd = my_socket(s->family, RELAY_STREAM_SOCKET_TYPE, RELAY_STREAM_SOCKET_PROTOCOL);
   if (s->fd < 0) {
     perror("TCP socket");
@@ -1571,6 +1576,7 @@ ioa_socket_handle detach_ioa_socket(ioa_socket_handle s) {
     evutil_socket_t udp_fd = -1;
 
     if (s->parent_s) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in ns_iolib_engine_impl.c - 1579");
       udp_fd = my_socket(s->local_addr.ss.sa_family, CLIENT_DGRAM_SOCKET_TYPE, CLIENT_DGRAM_SOCKET_PROTOCOL);
       if (udp_fd < 0) {
         perror("socket");

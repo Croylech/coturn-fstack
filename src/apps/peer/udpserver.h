@@ -57,10 +57,17 @@ typedef struct server_info server_type;
 struct server_info {
   char ifname[1025];
   struct event_base *event_base;
+#ifdef USE_FSTACK
+  evutil_socket_t udp_fd; // jose, necesario para que ff_stack funcione, se necesita pasarle el fd para hacer la epoll
+#endif
   int verbose;
 };
 
 //////////////////////////////
+
+#ifdef USE_FSTACK
+int fstack_main_udp_loop(void *arg);
+#endif
 
 server_type *start_udp_server(int verbose, const char *ifname, char **local_addresses, size_t las, int port);
 

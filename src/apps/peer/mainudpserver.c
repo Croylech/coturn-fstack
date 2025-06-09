@@ -45,6 +45,9 @@
 #else
 #include <unistd.h>
 #endif
+#ifdef USE_FSTACK
+#include <ff_api.h>
+#endif
 
 //////////////// local definitions /////////////////
 
@@ -104,8 +107,14 @@ int main(int argc, char **argv) {
   }
 
   server_type *server = start_udp_server(verbose, ifname, local_addr_list, las, port);
+#ifdef USE_FSTACK
+  ff_run(fstack_main_udp_loop, server);
+#else
   run_udp_server(server);
   clean_udp_server(server);
+#endif
+
+  
 
   return 0;
 }

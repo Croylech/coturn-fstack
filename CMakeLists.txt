@@ -35,6 +35,13 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(coturn)
+
+option (USE_FSTACK "Enable F-Stack support" ON)
+
+if(USE_FSTACK)
+    add_definitions(-DUSE_FSTACK)
+    MESSAGE(STATUS "F-stack support enabled")
+endif()
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)

@@ -2,7 +2,6 @@
 
 #ifdef USE_FSTACK
 #include <ff_api.h>
-
 #define socket_fn     ff_socket
 #define bind_fn       ff_bind
 #define listen_fn     ff_listen
@@ -45,7 +44,11 @@ int my_socket(int domain, int type, int protocol) {
 }
 
 int my_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-    return bind_fn(sockfd, addr, addrlen);
+#ifdef USE_FSTACK
+    return ff_bind(sockfd, (const struct linux_sockaddr *)addr, addrlen);
+#else
+    return bind(sockfd, addr, addrlen);
+#endif
 }
 
 int my_listen(int sockfd, int backlog) {
@@ -53,22 +56,37 @@ int my_listen(int sockfd, int backlog) {
 }
 
 int my_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
-    return accept_fn(sockfd, addr, addrlen);
+#ifdef USE_FSTACK
+    return ff_accept(sockfd, (struct linux_sockaddr *)addr, addrlen);
+#else
+    return accept(sockfd, addr, addrlen);
+#endif
 }
-
 int my_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-    return connect_fn(sockfd, addr, addrlen);
+#ifdef USE_FSTACK
+    return ff_connect(sockfd, (const struct linux_sockaddr *)addr, addrlen);
+#else
+    return connect(sockfd, addr, addrlen);
+#endif
 }
 
 // Envío y recepción
 ssize_t my_recvfrom(int sockfd, void *buf, size_t len, int flags,
                     struct sockaddr *src_addr, socklen_t *addrlen) {
-    return recvfrom_fn(sockfd, buf, len, flags, src_addr, addrlen);
+#ifdef USE_FSTACK
+    return ff_recvfrom(sockfd, buf, len, flags, (struct linux_sockaddr *)src_addr, addrlen);
+#else
+    return recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
+#endif
 }
 
 ssize_t my_sendto(int sockfd, const void *buf, size_t len, int flags,
                   const struct sockaddr *dest_addr, socklen_t addrlen) {
-    return sendto_fn(sockfd, buf, len, flags, dest_addr, addrlen);
+#ifdef USE_FSTACK
+    return ff_sendto(sockfd, buf, len, flags, (const struct linux_sockaddr *)dest_addr, addrlen);
+#else
+    return sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+#endif
 }
 
 ssize_t my_recv(int sockfd, void *buf, size_t len, int flags) {

@@ -33,7 +33,9 @@
  */
 
 #include "mainrelay.h"
-
+#ifdef USE_FSTACK
+#include <ff_api.h>
+#endif
 #include "ns_turn_ioalib.h"
 
 //////////// Backward compatibility with OpenSSL 1.0.x //////////////
@@ -954,6 +956,9 @@ static ioa_engine_handle create_new_listener_engine(void) {
 }
 
 static void *run_udp_listener_thread(void *arg) {
+#ifdef USE_FSTACK
+  //ff_thread_init();
+#endif
   static int always_true = 1;
 
   ignore_sigpipe();
@@ -1678,6 +1683,9 @@ static void setup_relay_server(struct relay_server *rs, ioa_engine_handle e, int
 }
 
 static void *run_general_relay_thread(void *arg) {
+#ifdef USE_FSTACK
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Calling //ff_thread_init in run_general_thread\n");
+#endif
   static int always_true = 1;
   struct relay_server *rs = (struct relay_server *)arg;
 
@@ -1706,6 +1714,10 @@ static void setup_general_relay_servers(void) {
   for (i = 0; i < get_real_general_relay_servers_number(); i++) {
 
     if (turn_params.general_relay_servers_number == 0) {
+      #ifdef USE_FSTACK
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call //ff_thread_init in netengine.c - 1717\n");
+        //ff_thread_init();
+      #endif
       general_relay_servers[i] = (struct relay_server *)allocate_super_memory_engine(turn_params.listener.ioa_eng,
                                                                                      sizeof(struct relay_server));
       general_relay_servers[i]->id = (turnserver_id)i;
@@ -1732,6 +1744,9 @@ static void setup_general_relay_servers(void) {
 static int run_auth_server_flag = 1;
 
 static void *run_auth_server_thread(void *arg) {
+#ifdef USE_FSTACK
+  //ff_thread_init();
+#endif
   ignore_sigpipe();
 
   struct auth_server *as = (struct auth_server *)arg;

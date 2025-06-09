@@ -41,6 +41,10 @@ add_subdirectory(client)
 add_subdirectory(server)
 add_subdirectory(apps)
 
+if(USE_FSTACK)
+    add_compile_definitions(USE_FSTACK)
+endif()
+
 # Añadir wrappers.c manualmente
 set(WRAPPERS_SRC ${CMAKE_CURRENT_SOURCE_DIR}/Fstack/wrappers.c)
 add_library(fstack_wrappers STATIC ${WRAPPERS_SRC})
@@ -57,7 +61,7 @@ target_include_directories(fstack_wrappers PRIVATE
 )
 
 # Definiciones de compilación
-target_compile_definitions(fstack_wrappers PRIVATE USE_FSTACK)
+#target_compile_definitions(fstack_wrappers PRIVATE USE_FSTACK)
 
 # Enlazar correctamente: F-Stack + DPDK + otras dependencias
 target_link_libraries(fstack_wrappers

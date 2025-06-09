@@ -1398,6 +1398,7 @@ void setup_admin_thread(void) {
 
     addr_set_port(&cli_addr, cli_port);
 
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in turn_admin_server.c - 1401");
     adminserver.listen_fd = my_socket(cli_addr.ss.sa_family, ADMIN_STREAM_SOCKET_TYPE, ADMIN_STREAM_SOCKET_PROTOCOL);
     if (adminserver.listen_fd < 0) {
       perror("socket");

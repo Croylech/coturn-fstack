@@ -1,0 +1,174 @@
+src/apps/peer/udpserver.c:120:      event_new(server->event_base, udp_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server_addr);
+src/apps/peer/udpserver.c:122:  event_add(udp_ev, NULL);
+src/apps/peer/udpserver.c:145:  server->event_base = turn_event_base_new();
+src/apps/peer/udpserver.c:157:    if (server->event_base) {
+src/apps/peer/udpserver.c:158:      event_base_free(server->event_base);
+src/apps/peer/udpserver.c:177:  event_base_loopexit(server->event_base, &timeout);
+src/apps/peer/udpserver.c:178:  event_base_dispatch(server->event_base);
+src/apps/peer/udpserver.c:192:      event_base_loopexit(server->event_base, &timeout);
+src/apps/peer/udpserver.c:193:      event_base_dispatch(server->event_base);
+src/apps/peer/udpserver.h:59:  struct event_base *event_base;
+src/apps/uclient/startuclient.c:1665:    struct event *ev = event_new(client_event_base, clnet_fd, EV_READ | EV_PERSIST, client_input_handler, elem);
+src/apps/uclient/startuclient.c:1667:    event_add(ev, NULL);
+src/apps/uclient/uclient.c:67:struct event_base *client_event_base = NULL;
+src/apps/uclient/uclient.c:1015:  event_base_loopexit(client_event_base, &timeout);
+src/apps/uclient/uclient.c:1017:  event_base_dispatch(client_event_base);
+src/apps/uclient/uclient.c:1063:  struct event *ev = event_new(client_event_base, clnet_info->fd, EV_READ | EV_PERSIST, client_input_handler, ss);
+src/apps/uclient/uclient.c:1065:  event_add(ev, NULL);
+src/apps/uclient/uclient.c:1070:    ev_rtcp = event_new(client_event_base, clnet_info_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler, ss_rtcp);
+src/apps/uclient/uclient.c:1072:    event_add(ev_rtcp, NULL);
+src/apps/uclient/uclient.c:1169:  struct event *ev1 = event_new(client_event_base, clnet_info1->fd, EV_READ | EV_PERSIST, client_input_handler, ss1);
+src/apps/uclient/uclient.c:1171:  event_add(ev1, NULL);
+src/apps/uclient/uclient.c:1176:    ev1_rtcp = event_new(client_event_base, clnet_info1_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler, ss1_rtcp);
+src/apps/uclient/uclient.c:1178:    event_add(ev1_rtcp, NULL);
+src/apps/uclient/uclient.c:1181:  struct event *ev2 = event_new(client_event_base, clnet_info2->fd, EV_READ | EV_PERSIST, client_input_handler, ss2);
+src/apps/uclient/uclient.c:1183:  event_add(ev2, NULL);
+src/apps/uclient/uclient.c:1188:    ev2_rtcp = event_new(client_event_base, clnet_info2_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler, ss2_rtcp);
+src/apps/uclient/uclient.c:1190:    event_add(ev2_rtcp, NULL);
+src/apps/uclient/uclient.c:1429:  client_event_base = turn_event_base_new();
+src/apps/uclient/uclient.c:1487:  struct event *ev = event_new(client_event_base, -1, EV_TIMEOUT | EV_PERSIST, timer_handler, NULL);
+src/apps/uclient/uclient.c:1591:  if (client_event_base) {
+src/apps/uclient/uclient.c:1592:    event_base_free(client_event_base);
+src/apps/uclient/uclient.h:74:extern struct event_base *client_event_base;
+src/apps/relay/tls_listener.c:232:  server->l = evconnlistener_new(server->e->event_base, server_input_handler, server,
+src/apps/relay/tls_listener.c:285:  server->sctp_l = evconnlistener_new(server->e->event_base, sctp_server_input_handler, server,
+src/apps/relay/CMakeLists.txt:133:    list(APPEND SOURCE_FILES hiredis_libevent2.c dbdrivers/dbd_redis.c)
+src/apps/relay/CMakeLists.txt:134:    list(APPEND HEADER_FILES hiredis_libevent2.h dbdrivers/dbd_redis.h)
+src/apps/relay/netengine.c:59:  struct event_base *event_base;
+src/apps/relay/netengine.c:84:static void run_events(struct event_base *eb, ioa_engine_handle e);
+src/apps/relay/netengine.c:352:  struct event_base *base = e->event_base;
+src/apps/relay/netengine.c:354:    struct event *ev = event_new(base, -1, EV_PERSIST, (event_callback_fn)update_ssl_ctx, (void *)args);
+src/apps/relay/netengine.c:943:  struct event_base *eb = turn_event_base_new();
+src/apps/relay/netengine.c:982:  turn_params.listener.event_base = turn_event_base_new();
+src/apps/relay/netengine.c:984:  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "IO method: %s\n", event_base_get_method(turn_params.listener.event_base));
+src/apps/relay/netengine.c:987:      sm, turn_params.listener.event_base, turn_params.listener.tp, turn_params.relay_ifname, turn_params.relays_number,
+src/apps/relay/netengine.c:1006:    bufferevent_pair_new(turn_params.listener.event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+src/apps/relay/netengine.c:1009:    bufferevent_setcb(turn_params.listener.in_buf, listener_receive_message, NULL, NULL, &turn_params.listener);
+src/apps/relay/netengine.c:1583:static void run_events(struct event_base *eb, ioa_engine_handle e) {
+src/apps/relay/netengine.c:1585:    eb = e->event_base;
+src/apps/relay/netengine.c:1597:  event_base_loopexit(eb, &timeout);
+src/apps/relay/netengine.c:1599:  event_base_dispatch(eb);
+src/apps/relay/netengine.c:1621:    run_events(ls->event_base, ls->ioa_eng);
+src/apps/relay/netengine.c:1635:    rs->event_base = e->event_base;
+src/apps/relay/netengine.c:1638:    rs->event_base = turn_event_base_new();
+src/apps/relay/netengine.c:1639:    rs->ioa_eng = create_ioa_engine(rs->sm, rs->event_base, turn_params.listener.tp, turn_params.relay_ifname,
+src/apps/relay/netengine.c:1651:  bufferevent_pair_new(rs->event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+src/apps/relay/netengine.c:1654:  bufferevent_setcb(rs->in_buf, relay_receive_message, NULL, NULL, rs);
+src/apps/relay/netengine.c:1657:  bufferevent_pair_new(rs->event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+src/apps/relay/netengine.c:1660:  bufferevent_setcb(rs->auth_in_buf, relay_receive_auth_message, NULL, NULL, rs);
+src/apps/relay/netengine.c:1705:    run_events(rs->event_base, rs->ioa_eng);
+src/apps/relay/netengine.c:1778:    as->event_base = turn_event_base_new();
+src/apps/relay/netengine.c:1782:    bufferevent_pair_new(as->event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+src/apps/relay/netengine.c:1785:    bufferevent_setcb(as->in_buf, auth_server_receive_message, NULL, NULL, as);
+src/apps/relay/netengine.c:1789:    as->rch = get_redis_async_connection(as->event_base, &turn_params.redis_statsdb, 1);
+src/apps/relay/netengine.c:1799:      run_events(as->event_base, NULL);
+src/apps/relay/netengine.c:1822:  while (adminserver.event_base) {
+src/apps/relay/netengine.c:1823:    run_events(adminserver.event_base, NULL);
+src/apps/relay/ns_ioalib_impl.h:110:  struct event_base *event_base;
+src/apps/relay/ns_ioalib_impl.h:143:  struct event_base *event_base;
+src/apps/relay/ns_ioalib_impl.h:242:ioa_engine_handle create_ioa_engine(super_memory_t *sm, struct event_base *eb, turnipports *tp, const char *relay_if,
+src/apps/relay/mainrelay.c:3376:  struct event *ev = evsignal_new(turn_params.listener.event_base, SIGUSR2, reload_ssl_certs, NULL);
+src/apps/relay/mainrelay.c:3377:  event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3379:  ev = evsignal_new(turn_params.listener.event_base, SIGTERM, shutdown_handler, NULL);
+src/apps/relay/mainrelay.c:3380:  event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3381:  ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);
+src/apps/relay/mainrelay.c:3382:  event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3383:  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
+src/apps/relay/mainrelay.c:3384:  event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3416: event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3417:  ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);
+src/apps/relay/mainrelay.c:3418:  event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3419:  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
+src/apps/relay/mainrelay.c:3420:  event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3432:    } event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3433:  ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);
+src/apps/relay/mainrelay.c:3434:  event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3435:  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
+src/apps/relay/mainrelay.c:3436:  event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3916:    struct event_base *base = event_base_new();
+src/apps/relay/mainrelay.c:3921:    event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3924:    event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3927:    event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3930:    event_add(ev, NULL);
+src/apps/relay/mainrelay.c:3932:    event_base_dispatch(base);
+src/apps/relay/mainrelay.c:3935:    event_base_free(base);
+src/apps/relay/dtls_listener.c:793:        event_new(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
+src/apps/relay/dtls_listener.c:795:    event_add(server->udp_listen_ev, NULL);
+src/apps/relay/dtls_listener.c:863:        event_new(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
+src/apps/relay/dtls_listener.c:865:    event_add(server->udp_listen_ev, NULL);
+src/apps/relay/dbdrivers/dbd_redis.h:39:#include "../hiredis_libevent2.h"
+src/apps/relay/dbdrivers/dbd_redis.h:47:redis_context_handle get_redis_async_connection(struct event_base *base, redis_stats_db_t *connection_string,
+src/apps/relay/dbdrivers/dbd_redis.c:40:#include "../hiredis_libevent2.h"
+src/apps/relay/dbdrivers/dbd_redis.c:178:redis_context_handle get_redis_async_connection(struct event_base *base, redis_stats_db_t *redis_stats_db,
+src/apps/relay/dbdrivers/dbd_redis.c:1440:redis_context_handle get_redis_async_connection(struct event_base *base, redis_stats_db_t *connection_string,
+src/apps/relay/userdb.h:41:#include "hiredis_libevent2.h"
+src/apps/relay/userdb.h:220:redis_context_handle get_redis_async_connection(struct event_base *base, redis_stats_db_t *redis_stats_db,
+src/apps/relay/hiredis_libevent2.c:37:#include "hiredis_libevent2.h"
+src/apps/relay/hiredis_libevent2.c:52:  struct event_base *base;
+src/apps/relay/hiredis_libevent2.c:115:    event_add(e->rev, NULL);
+src/apps/relay/hiredis_libevent2.c:123:    event_del(e->rev);
+src/apps/relay/hiredis_libevent2.c:131:    event_add(e->wev, NULL);
+src/apps/relay/hiredis_libevent2.c:139:    event_del(e->wev);
+src/apps/relay/hiredis_libevent2.c:152:          event_del(e->rev);
+src/apps/relay/hiredis_libevent2.c:160:          event_del(e->wev);
+src/apps/relay/hiredis_libevent2.c:220:redis_context_handle redisLibeventAttach(struct event_base *base, char *ip0, int port0, char *user, char *pwd, int db) {
+src/apps/relay/hiredis_libevent2.c:272:  e->rev = event_new(e->base, e->context->c.fd, EV_READ | EV_PERSIST, redisLibeventReadEvent, e);
+src/apps/relay/hiredis_libevent2.c:274:  e->wev = event_new(e->base, e->context->c.fd, EV_WRITE, redisLibeventWriteEvent, e);
+src/apps/relay/hiredis_libevent2.c:281:  event_add(e->wev, NULL);
+src/apps/relay/hiredis_libevent2.c:313:      event_del(e->rev);
+src/apps/relay/hiredis_libevent2.c:322:      event_del(e->wev);
+src/apps/relay/hiredis_libevent2.c:353:  e->rev = event_new(e->base, e->context->c.fd, EV_READ, redisLibeventReadEvent, e);
+src/apps/relay/hiredis_libevent2.c:355:  e->wev = event_new(e->base, e->context->c.fd, EV_WRITE, redisLibeventWriteEvent, e);
+src/apps/relay/hiredis_libevent2.c:361:  event_add(e->wev, NULL);
+src/apps/relay/ns_ioalib_engine_impl.c:56:#include "hiredis_libevent2.h"
+src/apps/relay/ns_ioalib_engine_impl.c:363:ioa_engine_handle create_ioa_engine(super_memory_t *sm, struct event_base *eb, turnipports *tp,
+src/apps/relay/ns_ioalib_engine_impl.c:408:      e->event_base = eb;
+src/apps/relay/ns_ioalib_engine_impl.c:411:      e->event_base = turn_event_base_new();
+src/apps/relay/ns_ioalib_engine_impl.c:416:    e->rch = get_redis_async_connection(e->event_base, redis_stats_db, 0);
+src/apps/relay/ns_ioalib_engine_impl.c:425:        const struct timeval *ptv = event_base_init_common_timeout(e->event_base, &duration);
+src/apps/relay/ns_ioalib_engine_impl.c:582:    struct event *ev = event_new(e->event_base, -1, flags, timer_event_handler, te);
+src/apps/relay/ns_ioalib_engine_impl.c:1182:    s->list_ev = evconnlistener_new(s->e->event_base, tcp_listener_input_handler, s, LEV_OPT_REUSEABLE, 1024, s->fd);
+src/apps/relay/ns_ioalib_engine_impl.c:1256:  ret->conn_bev = bufferevent_socket_new(ret->e->event_base, ret->fd, TURN_BUFFEREVENTS_OPTIONS);
+src/apps/relay/ns_ioalib_engine_impl.c:1257:  bufferevent_setcb(ret->conn_bev, NULL, NULL, connect_eventcb, ret);
+src/apps/relay/ns_ioalib_engine_impl.c:2448:        s->bev = bufferevent_openssl_socket_new(s->e->event_base, s->fd, s->ssl, BUFFEREVENT_SSL_ACCEPTING,
+src/apps/relay/ns_ioalib_engine_impl.c:2450:        bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
+src/apps/relay/ns_ioalib_engine_impl.c:2451:        bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+src/apps/relay/ns_ioalib_engine_impl.c:2462:      s->bev = bufferevent_socket_new(s->e->event_base, s->fd, TURN_BUFFEREVENTS_OPTIONS);
+src/apps/relay/ns_ioalib_engine_impl.c:2463:      bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
+src/apps/relay/ns_ioalib_engine_impl.c:2464:      bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+src/apps/relay/ns_ioalib_engine_impl.c:2485:        s->bev = bufferevent_openssl_socket_new(s->e->event_base, s->fd, s->ssl, BUFFEREVENT_SSL_ACCEPTING,
+src/apps/relay/ns_ioalib_engine_impl.c:2487:        bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
+src/apps/relay/ns_ioalib_engine_impl.c:2488:        bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+src/apps/relay/ns_ioalib_engine_impl.c:2499:      s->bev = bufferevent_socket_new(s->e->event_base, s->fd, TURN_BUFFEREVENTS_OPTIONS);
+src/apps/relay/ns_ioalib_engine_impl.c:2500:      bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
+src/apps/relay/ns_ioalib_engine_impl.c:2501:      bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+src/apps/relay/ns_ioalib_engine_impl.c:3388:            s->read_event = event_new(s->e->event_base, s->fd, EV_READ | EV_PERSIST, socket_input_handler, s);
+src/apps/relay/ns_ioalib_engine_impl.c:3389:            event_add(s->read_event, NULL);
+src/apps/relay/ns_ioalib_engine_impl.c:3405:            s->read_event = event_new(s->e->event_base, s->fd, EV_READ | EV_PERSIST, socket_input_handler, s);
+src/apps/relay/ns_ioalib_engine_impl.c:3406:            event_add(s->read_event, NULL);
+src/apps/relay/ns_ioalib_engine_impl.c:3424:            s->bev = bufferevent_socket_new(s->e->event_base, s->fd, TURN_BUFFEREVENTS_OPTIONS);
+src/apps/relay/ns_ioalib_engine_impl.c:3425:            bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
+src/apps/relay/ns_ioalib_engine_impl.c:3426:            bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+src/apps/relay/ns_ioalib_engine_impl.c:3442:              s->bev = bufferevent_openssl_socket_new(s->e->event_base, s->fd, s->ssl, BUFFEREVENT_SSL_ACCEPTING,
+src/apps/relay/ns_ioalib_engine_impl.c:3445:              s->bev = bufferevent_openssl_socket_new(s->e->event_base, s->fd, s->ssl, BUFFEREVENT_SSL_OPEN,
+src/apps/relay/ns_ioalib_engine_impl.c:3448:            bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
+src/apps/relay/ns_ioalib_engine_impl.c:3449:            bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+src/apps/relay/turn_admin_server.h:70:  struct event_base *event_base;
+src/apps/relay/hiredis_libevent2.h:55:redis_context_handle redisLibeventAttach(struct event_base *base, char *ip, int port, char *user, char *pwd, int db);
+src/apps/relay/mainrelay.h:156:  struct event_base *event_base;
+src/apps/relay/turn_admin_server.c:1185:  clisession->bev = bufferevent_socket_new(adminserver.event_base, fd, TURN_BUFFEREVENTS_OPTIONS);
+src/apps/relay/turn_admin_server.c:1186:  bufferevent_setcb(clisession->bev, cli_socket_input_handler_bev, NULL, cli_eventcb_bev, clisession);
+src/apps/relay/turn_admin_server.c:1187:  bufferevent_setwatermark(clisession->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+src/apps/relay/turn_admin_server.c:1324:  adminserver.event_base = turn_event_base_new();
+src/apps/relay/turn_admin_server.c:1326:  adminserver.e = create_ioa_engine(sm, adminserver.event_base, turn_params.listener.tp, turn_params.relay_ifname,
+src/apps/relay/turn_admin_server.c:1344:    bufferevent_pair_new(adminserver.event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+src/apps/relay/turn_admin_server.c:1349:    bufferevent_setcb(adminserver.in_buf, admin_server_receive_message, NULL, NULL, &adminserver);
+src/apps/relay/turn_admin_server.c:1356:    bufferevent_pair_new(adminserver.event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+src/apps/relay/turn_admin_server.c:1361:    bufferevent_setcb(adminserver.https_in_buf, https_admin_server_receive_message, NULL, NULL, &adminserver);
+src/apps/relay/turn_admin_server.c:1422:    adminserver.l = evconnlistener_new(adminserver.event_base, cliserver_input_handler, &adminserver,
+src/apps/common/apputils.c:1409:struct event_base *turn_event_base_new(void) {
+src/apps/common/apputils.c:1414:  return event_base_new_with_config(cfg);
+src/apps/common/CMakeLists.txt:74:    list(APPEND COMMON_LIBS libevent::core libevent::extra libevent::openssl)
+src/apps/common/CMakeLists.txt:76:        list(APPEND COMMON_LIBS libevent::pthreads)
+src/apps/common/apputils.h:111:    event_del(ev);                                                                                                     \
+src/apps/common/apputils.h:226:struct event_base *turn_event_base_new(void);

@@ -306,6 +306,7 @@ int is_ipv6_enabled(void) {
   int ret = 0;
 
 #ifdef AF_INET6
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in prom_server.c - 309");
   int fd = my_socket(AF_INET6, SOCK_STREAM, 0);
   if (fd == -1) {
     ret = errno != EAFNOSUPPORT;

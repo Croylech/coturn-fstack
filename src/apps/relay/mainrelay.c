@@ -34,7 +34,10 @@
 
 #include "mainrelay.h"
 #include "dbdrivers/dbdriver.h"
-#include "wrappers.h"
+#ifdef USE_FSTACK
+#include <ff_api.h>
+#endif
+
 
 #include "prom_server.h"
 
@@ -262,6 +265,7 @@ static void reload_ssl_certs(evutil_socket_t sock, short events, void *args);
 
 static void shutdown_handler(evutil_socket_t sock, short events, void *args);
 static void drain_handler(evutil_socket_t sock, short events, void *args);
+void *signal_thread_func(void *arg);
 
 //////////////////////////////////////////////////
 
@@ -2441,6 +2445,7 @@ static void read_config_file(int argc, char **argv, int pass) {
         if (!strcmp(argv[i], "-c")) {
           if (i < argc - 1) {
             STRCPY(config_file, argv[i + 1]);
+            printf("Config file is %s\n", config_file);
           } else {
             TURN_LOG_FUNC(TURN_LOG_LEVEL_WARNING, "Wrong usage of -c option\n");
           }
@@ -2952,15 +2957,16 @@ static void init_domain(void) {
 
 #ifdef USE_FSTACK
 struct FStackRunContext {
-  turnparams_t *params;
+  turn_params_t *params;
 };
 
-static void fstack_main_loop(void *arg) {
+static int fstack_main_loop(void *arg) {
   struct FStackRunContext *ctx = (struct FStackRunContext *)arg;
-  setup_server();  // Ya se apoya en `turn_params`
-  drop_privileges();
-  start_prometheus_server();
-  run_listener_server(&(ctx->params->listener));
+  setup_server();  // no revisado
+  drop_privileges();// no revisado
+  start_prometheus_server();// no revisado
+  run_listener_server(&(ctx->params->listener));// no revisado (aquí es donde muere actualmente)
+  return 0;
 }
 #endif
 
@@ -2971,39 +2977,44 @@ int main(int argc, char **argv) {
   IS_TURN_SERVER = 1;
 
 #ifdef USE_FSTACK
-  // Solo argumentos de F-Stack
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-STACK IS BEING USED \n");
   char *fstack_args[] = {
-    argv[0],
-    "-c", "/home/jose/coturn-modded/coturn-fstack/f-stack/config.ini",
-    "--proc-type=primary",
-    "--file-prefix=fstack_turn",
-    NULL
+      argv[0],
+      "-c", "/home/jose/coturn-modded/coturn-fstack/f-stack/config.ini",
+      "-t", "primary",
+      "-p", "0",
+      NULL
   };
+  int fstack_argc = 7; // 6 elementos + NULL
 
-  if (ff_init(6, fstack_args) < 0) {
-    fprintf(stderr, "F-Stack initialization failed\n");
-    exit(EXIT_FAILURE);
+  if (ff_init(fstack_argc, fstack_args) < 0) {
+      fprintf(stderr, "F-Stack initialization failed\n");
+      exit(EXIT_FAILURE);
   }
+  optind = 1;
+
+#else
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-STACK IS NOT BEING USED \n");
 #endif
 
   TURN_MUTEX_INIT(&turn_params.tls_mutex);
 
-  set_execdir();
+  set_execdir(); // no revisado
 
-  init_super_memory();
+  init_super_memory(); // no revisado
 
-  init_domain();
-  create_default_realm();
+  init_domain(); // no revisado
+  create_default_realm();// no revisado
 
-  init_turn_server_addrs_list(&turn_params.alternate_servers_list);
-  init_turn_server_addrs_list(&turn_params.tls_alternate_servers_list);
-  init_turn_server_addrs_list(&turn_params.aux_servers_list);
+  init_turn_server_addrs_list(&turn_params.alternate_servers_list);// no revisado
+  init_turn_server_addrs_list(&turn_params.tls_alternate_servers_list);// no revisado
+  init_turn_server_addrs_list(&turn_params.aux_servers_list);// no revisado
 
-  set_network_engine();
+  set_network_engine();// no revisado
 
-  init_listener();
-  init_secrets_list(&turn_params.default_users_db.ram_db.static_auth_secrets);
-  init_dynamic_ip_lists();
+  init_listener();// no revisado
+  init_secrets_list(&turn_params.default_users_db.ram_db.static_auth_secrets);// no revisado
+  init_dynamic_ip_lists();// no revisado
 
   if (!strstr(argv[0], "turnadmin")) {
 
@@ -3048,18 +3059,18 @@ int main(int argc, char **argv) {
   turn_params.no_dtls = 1;
 #endif
 
-  if (strstr(argv[0], "turnadmin")) {
+  if (strstr(argv[0], "turnadmin")) { // esto no se va a usar para f-stack
     return adminmain(argc, argv);
   }
 
-  memset(&turn_params.default_users_db.ram_db, 0, sizeof(ram_users_db_t));
-  turn_params.default_users_db.ram_db.static_accounts = ur_string_map_create(free);
+  memset(&turn_params.default_users_db.ram_db, 0, sizeof(ram_users_db_t)); // no revisado
+  turn_params.default_users_db.ram_db.static_accounts = ur_string_map_create(free);// no revisado
 
   // Zero pass apply the log options.
-  read_config_file(argc, argv, 0);
+  read_config_file(argc, argv, 0); // no revisado pero no debería de dar problemas
 
   {
-    unsigned long cpus = get_system_active_number_of_cpus();
+    unsigned long cpus = get_system_active_number_of_cpus(); // no revisado
     if (cpus > 0) {
       turn_params.cpus = cpus;
     }
@@ -3076,7 +3087,7 @@ int main(int argc, char **argv) {
   }
 
   // First pass read other config options
-  read_config_file(argc, argv, 1);
+  read_config_file(argc, argv, 1);// no revisado pero no debería de dar problemas
 
   struct uoptions uo;
   uo.u.m = long_options;
@@ -3088,10 +3099,10 @@ int main(int argc, char **argv) {
   }
 
   // Second pass read -u options
-  read_config_file(argc, argv, 2);
+  read_config_file(argc, argv, 2);// no revisado pero no debería de dar problemas
 
   {
-    unsigned long mfn = set_system_parameters(1);
+    unsigned long mfn = set_system_parameters(1); // no revisado
 
     print_features(mfn);
   }
@@ -3221,7 +3232,7 @@ int main(int argc, char **argv) {
     use_web_admin = 0;
   }
 
-  openssl_setup();
+  openssl_setup();// no revisado
 
   int local_listeners = 0;
   if (!turn_params.listener.addrs_number) {
@@ -3244,7 +3255,7 @@ int main(int argc, char **argv) {
       size_t la = 0;
       for (la = 0; la < turn_params.listener.addrs_number; la++) {
         if (turn_params.listener.addrs[la]) {
-          add_relay_addr(turn_params.listener.addrs[la]);
+          add_relay_addr(turn_params.listener.addrs[la]);// no revisado
         }
       }
     }
@@ -3252,7 +3263,7 @@ int main(int argc, char **argv) {
       turn_params.default_relays = 1;
       TURN_LOG_FUNC(TURN_LOG_LEVEL_WARNING, "NO EXPLICIT RELAY ADDRESS(ES) ARE CONFIGURED\n");
       TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "===========Discovering relay addresses: =============\n");
-      if (make_local_relays_list(0, AF_INET) < 1) {
+      if (make_local_relays_list(0, AF_INET) < 1) {// no revisado
         make_local_relays_list(1, AF_INET);
       }
       if (make_local_relays_list(0, AF_INET6) < 1) {
@@ -3287,7 +3298,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (socket_init()) {
+  if (socket_init()) {// no revisado
     return -1;
   }
 
@@ -3298,7 +3309,7 @@ int main(int argc, char **argv) {
 
 #if defined(USE_FSTACK)
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-Stack mode detected, skipping demonization to maintain DPDK compatibility.\n");
-#else
+#else//Revisado no se demoniza, porque no sería un hilo que f-stack controle
   if (turn_params.turn_daemon) {
 #if !defined(TURN_HAS_DAEMON)
     pid_t pid = fork();
@@ -3361,16 +3372,20 @@ int main(int argc, char **argv) {
 #endif
 #if defined(WINDOWS)
   // TODO: implement it!!! add windows server
-#else
+#ifndef USE_FSTACK // Revisado y no funciona con f-stack hay que cambiarlo, se propone solución hebra que controle las señales con sus handlers
   struct event *ev = evsignal_new(turn_params.listener.event_base, SIGUSR2, reload_ssl_certs, NULL);
   event_add(ev, NULL);
 
-  ev = evsignal_new(turn_params.listener.event_base, SIGTERM, shutdown_handler, NULL);
+  ev = evsignal_new(turn_params.listener.event_base, SIGTERM, shutdown_handler, NULL);// no revisado
   event_add(ev, NULL);
-  ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);
+  ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);// no revisado
   event_add(ev, NULL);
-  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
+  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);// no revisado
   event_add(ev, NULL);
+#else
+pthread_t signal_thread;
+pthread_create(&signal_thread, NULL, signal_thread_func, NULL);
+
 #endif
 #ifndef USE_FSTACK
   drop_privileges();
@@ -3378,10 +3393,7 @@ int main(int argc, char **argv) {
 #endif
 #ifdef USE_FSTACK
 struct FStackRunContext ctx = { .params = &turn_params };
-if (ff_run(fstack_main_loop, &ctx) < 0){
-  fprintf(stderr, "F-stack run failed\n");
-  exit(EXIT_FAILURE);
-}
+ff_run(fstack_main_loop, &ctx);
 #else
   run_listener_server(&(turn_params.listener));
 #endif
@@ -3401,10 +3413,11 @@ int THREAD_cleanup(void) { return 1; }
 
 static void adjust_key_file_name(char *fn, const char *file_title, int critical) {
   char *full_path_to_file = NULL;
-
-  if (!fn[0]) {
-    TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "\nERROR: you must set the %s file parameter\n", file_title);
-    goto keyerr;
+ event_add(ev, NULL);
+  ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);
+  event_add(ev, NULL);
+  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
+  event_add(ev, NULL);
   } else {
 
     full_path_to_file = find_config_file(fn);
@@ -3416,12 +3429,11 @@ static void adjust_key_file_name(char *fn, const char *file_title, int critical)
       } else {
         fclose(f);
       }
-    }
-
-    if (!full_path_to_file) {
-      TURN_LOG_FUNC(TURN_LOG_LEVEL_WARNING, "cannot find %s file: %s (2)\n", file_title, fn);
-      goto keyerr;
-    }
+    } event_add(ev, NULL);
+  ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);
+  event_add(ev, NULL);
+  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
+  event_add(ev, NULL);
 
     strncpy(fn, full_path_to_file, sizeof(turn_params.cert_file) - 1);
     fn[sizeof(turn_params.cert_file) - 1] = 0;
@@ -3900,5 +3912,29 @@ static void drain_handler(evutil_socket_t sock, short events, void *args) {
   UNUSED_ARG(events);
   UNUSED_ARG(args);
 }
+void *signal_thread_func(void *arg) {
+    struct event_base *base = event_base_new();
+
+    struct event *ev;
+
+    ev = evsignal_new(base, SIGUSR2, reload_ssl_certs, NULL);
+    event_add(ev, NULL);
+
+    ev = evsignal_new(base, SIGTERM, shutdown_handler, NULL);
+    event_add(ev, NULL);
+
+    ev = evsignal_new(base, SIGINT, shutdown_handler, NULL);
+    event_add(ev, NULL);
+
+    ev = evsignal_new(base, SIGUSR1, drain_handler, NULL);
+    event_add(ev, NULL);
+
+    event_base_dispatch(base);
+
+    // Cleanup
+    event_base_free(base);
+    return NULL;
+}
+
 
 ///////////////////////////////
