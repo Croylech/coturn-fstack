@@ -36,6 +36,7 @@
 #define __MAIN_RELAY__
 
 #include <limits.h>
+#include "wrappers.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -153,7 +154,11 @@ struct message_to_listener {
 struct listener_server {
   rtcp_map *rtcpmap;
   turnipports *tp;
+#ifndef #USE_FSTACK
   struct event_base *event_base;
+#else
+  struct MyEventBase *event_base;
+#endif
   ioa_engine_handle ioa_eng;
   struct bufferevent *in_buf;
   struct bufferevent *out_buf;

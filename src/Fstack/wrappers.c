@@ -125,3 +125,37 @@ int my_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event) {
 int my_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout) {
     return epoll_wait_fn(epfd, events, maxevents, timeout);
 }
+
+//events
+
+MyEventBase* my_event_base_new(){
+    MyEventBase *base = malloc(sizeof(MyEventBase));
+    base->epfd = ff_epoll_create(1024);
+    return base;
+}
+
+MyEvent* my_event_new(MyEventBase *base, int fd, int events, void (*cb)(int, short, void*), void *arg) {
+    MyEvent *ev = malloc(sizeof(MyEvent));
+    ev->fd = fd;
+    ev->events = events;
+    ev->callback = cb;
+    ev->arg = arg;
+
+    struct epoll_event epev = {0};
+    epev.events = EPOLLIN;  // o EPOLLOUT
+    epev.data.ptr = ev;
+    ff_epoll_ctl(base->epfd, EPOLL_CTL_ADD, fd, &epev);
+
+    return ev;
+}
+
+void my_event_loop(MyEventBase *base) {
+    while (1) {
+        struct epoll_event events[64];
+        int n = ff_epoll_wait(base->epfd, events, 64, -1);
+        for (int i = 0; i < n; i++) {
+            MyEvent *ev = (MyEvent*)events[i].data.ptr;
+            ev->callback(ev->fd, ev->events, ev->arg);
+        }
+    }
+}

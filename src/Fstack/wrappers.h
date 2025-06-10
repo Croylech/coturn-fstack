@@ -12,6 +12,18 @@
 extern "C" {
 #endif
 
+typedef struct {
+    int fd;
+    int events;  // EV_READ / EV_WRITE etc.
+    void (*callback)(int fd, short event, void *arg);
+    void *arg;
+} MyEvent;
+
+typedef struct {
+    int epfd;
+} MyEventBase;
+
+
 // Funciones de creación y gestión de sockets
 int my_socket(int domain, int type, int protocol);
 int my_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
@@ -41,6 +53,10 @@ int my_epoll_create(int size);
 int my_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
 int my_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
 
+//events
+MyEventBase* my_event_base_new();
+MyEvent* my_event_new(MyEventBase *base, int fd, int events, void (*cb)(int, short, void*), void *arg);
+void my_event_loop(MyEventBase *base);
 #ifdef __cplusplus
 }
 #endif

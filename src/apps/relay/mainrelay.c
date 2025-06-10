@@ -2962,7 +2962,7 @@ struct FStackRunContext {
 
 static int fstack_main_loop(void *arg) {
   struct FStackRunContext *ctx = (struct FStackRunContext *)arg;
-  setup_server();  // no revisado
+  setup_server();  //revisando actualmente
   drop_privileges();// no revisado
   start_prometheus_server();// no revisado
   run_listener_server(&(ctx->params->listener));// no revisado (aquí es donde muere actualmente)
@@ -2999,11 +2999,13 @@ int main(int argc, char **argv) {
 
   TURN_MUTEX_INIT(&turn_params.tls_mutex);
 
-  set_execdir(); // no revisado
+  set_execdir(); // Revisado: obtener la ruta del ejecutable con readlink("/proc/self/exe", buffer, size),
+  // para evitar posibles interferencias con la gestión de memoria de f-stack, se podría cambiar strdup por
+  // una asignación más controlada de la memoria
 
-  init_super_memory(); // no revisado
+  init_super_memory(); // Revisado: Esta vacio??
 
-  init_domain(); // no revisado
+  init_domain(); // Revisado: Getdomainname podría fallar al tener que hacer una llamada al kernel; strcmp?
   create_default_realm();// no revisado
 
   init_turn_server_addrs_list(&turn_params.alternate_servers_list);// no revisado
@@ -3383,8 +3385,10 @@ int main(int argc, char **argv) {
   ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);// no revisado
   event_add(ev, NULL);
 #else
-pthread_t signal_thread;
-pthread_create(&signal_thread, NULL, signal_thread_func, NULL);
+// pthread_t signal_thread;
+// pthread_create(&signal_thread, NULL, signal_thread_func, NULL);
+
+
 
 #endif
 #ifndef USE_FSTACK

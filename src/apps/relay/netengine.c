@@ -978,10 +978,14 @@ static void setup_listener(void) {
   super_memory_t *sm = new_super_memory_region();
 
   turn_params.listener.tp = turnipports_create(sm, turn_params.min_port, turn_params.max_port);
-
+#ifndef USE_FSTACK 
   turn_params.listener.event_base = turn_event_base_new();
-
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "IO method: %s\n", event_base_get_method(turn_params.listener.event_base));
+#else
+  turn_params.listener.event_base = my_event_base_new();
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "IO method: F-stack Epoll");
+#endif
+  
 
   turn_params.listener.ioa_eng = create_ioa_engine(
       sm, turn_params.listener.event_base, turn_params.listener.tp, turn_params.relay_ifname, turn_params.relays_number,
@@ -1843,7 +1847,7 @@ void setup_server(void) {
 #if defined(WINDOWS)
   evthread_use_windows_threads();
 #else
-  evthread_use_pthreads();
+  evthread_use_pthreads(); //esto no se si se ejecuta, pero creo que no porque no estoy usando libevent
 #endif
 
   TURN_MUTEX_INIT(&mutex_bps);
@@ -1864,7 +1868,7 @@ void setup_server(void) {
 
 #endif
 
-  setup_listener();
+  setup_listener(); // usa event_base, que hay que cambiarlo a MyeventBase
   allocate_relay_addrs_ports();
   setup_barriers();
   setup_general_relay_servers();

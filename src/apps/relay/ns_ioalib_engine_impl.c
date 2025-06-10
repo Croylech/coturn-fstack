@@ -360,7 +360,13 @@ static void timer_handler(ioa_engine_handle e, void *arg) {
   e->jiffie = _log_time_value;
 }
 
-ioa_engine_handle create_ioa_engine(super_memory_t *sm, struct event_base *eb, turnipports *tp,
+ioa_engine_handle create_ioa_engine(super_memory_t *sm
+#ifndef USE_FSTACK
+                                  , struct event_base *eb
+#else     
+                                  , struct MyEventBase *eb
+#endif
+                                  , turnipports *tp,
                                     const char *relay_ifname, size_t relays_number, char **relay_addrs,
                                     int default_relays, int verbose
 #if !defined(TURN_NO_HIREDIS)
@@ -408,7 +414,11 @@ ioa_engine_handle create_ioa_engine(super_memory_t *sm, struct event_base *eb, t
       e->event_base = eb;
       e->deallocate_eb = 0;
     } else {
+#ifndef USE_FSTACK
       e->event_base = turn_event_base_new();
+#else
+      e->event_base = my_event_base_new();
+#endif
       e->deallocate_eb = 1;
     }
 
