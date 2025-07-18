@@ -185,7 +185,7 @@ static int run_stunclient(const char *rip, int rport, int *port, bool *rfc5780, 
     const int to_recv = sizeof(buf.buf);
 
     do {
-      len = recv(udp_fd, buf.buf, to_recv - recvd, 0);
+      len = my_recv(udp_fd, buf.buf, to_recv - recvd, 0);
       if (len > 0) {
         recvd += len;
         break;
@@ -340,7 +340,7 @@ static int run_stunclient(const char *rip, int rport, int *port, bool *rfc5780, 
     const int to_recv = sizeof(buf.buf);
 
     do {
-      len = recv(udp_fd, buf.buf, to_recv - recvd, 0);
+      len = my_recv(udp_fd, buf.buf, to_recv - recvd, 0);
       if (len > 0) {
         recvd += len;
         break;

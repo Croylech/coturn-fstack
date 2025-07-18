@@ -105,13 +105,24 @@ struct _oauth_key_data_raw {
 typedef struct _oauth_key_data_raw oauth_key_data_raw;
 
 //////////////////////////////////////////
-
-#define EVENT_DEL(ev)                                                                                                  \
-  if (ev) {                                                                                                            \
-    event_del(ev);                                                                                                     \
-    event_free(ev);                                                                                                    \
-    ev = NULL;                                                                                                         \
+#ifndef USE_FSTACK
+#define EVENT_DEL(ev)   \
+  if (ev) {             \
+    event_del(ev);      \
+    event_free(ev);     \
+    ev = NULL;          \
   }
+#else
+#define EVENT_DEL(ev)   \
+  if (ev) {             \
+    my_event_del(ev);   \
+    my_event_free(ev);  \
+    ev = NULL;          \
+  }
+#endif
+
+
+
 
 //////////////////////////////////////////
 

@@ -98,8 +98,13 @@ typedef struct {
   int wait_cycles;
   int timer_cycle;
   int completed; // A count of the number of connections considered complete.
-  struct event *input_ev;
-  struct event *input_tcp_data_ev;
+  #ifndef USE_FSTACK
+    struct event *input_ev;
+    struct event *input_tcp_data_ev;
+  #else
+    struct MyEvent *input_ev;
+    struct MyEvent *input_tcp_data_ev;
+  #endif
   stun_buffer in_buffer;
   stun_buffer out_buffer;
   uint32_t refresh_time;

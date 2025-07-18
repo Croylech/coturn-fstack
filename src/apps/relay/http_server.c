@@ -57,30 +57,50 @@ struct http_headers {
 //////////////////////////////////////
 
 static void write_http_echo(ioa_socket_handle s) {
-  if (s && !ioa_socket_tobeclosed(s)) {
-    SOCKET_APP_TYPE sat = get_ioa_socket_app_type(s);
-    if ((sat == HTTP_CLIENT_SOCKET) || (sat == HTTPS_CLIENT_SOCKET)) {
-      char content_http[1025];
-      const char *const title = "TURN Server";
-      snprintf(content_http, sizeof(content_http) - 1,
-               "<!DOCTYPE html>\r\n<html>\r\n  <head>\r\n    <title>%s</title>\r\n  </head>\r\n  <body>\r\n    "
-               "<b>%s</b> <br> <b><i>use https connection for the admin session</i></b>\r\n  </body>\r\n</html>\r\n",
-               title, title);
+    if (s && !ioa_socket_tobeclosed(s)) {
+        SOCKET_APP_TYPE sat = get_ioa_socket_app_type(s);
+        if ((sat == HTTP_CLIENT_SOCKET) || (sat == HTTPS_CLIENT_SOCKET)) {
+            /* Construir el contenido HTML */
+            char content_http[1025];
+            const char *const title = "TURN Server";
+            snprintf(content_http, sizeof(content_http) - 1,
+                     "<!DOCTYPE html>\r\n"
+                     "<html>\r\n"
+                     "  <head>\r\n"
+                     "    <title>%s</title>\r\n"
+                     "  </head>\r\n"
+                     "  <body>\r\n"
+                     "    <b>%s</b> <br> <b><i>use https connection for the admin session</i></b>\r\n"
+                     "  </body>\r\n"
+                     "</html>\r\n",
+                     title, title);
 
-      char data_http[1025];
-      snprintf(data_http, sizeof(data_http) - 1,
-               "HTTP/1.0 200 OK\r\nServer: %s\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: "
-               "%zu\r\n\r\n%.906s",
-               TURN_SOFTWARE, strlen(content_http), content_http);
+            /* Preparar la respuesta HTTP */
+            char data_http[1025];
+            size_t len = strlen(content_http);
+            /* Reservar ~200 bytes para cabeceras */
+            if (len > sizeof(data_http) - 200) {
+                len = sizeof(data_http) - 200;
+            }
+            snprintf(data_http, sizeof(data_http) - 1,
+                     "HTTP/1.0 200 OK\r\n"
+                     "Server: %s\r\n"
+                     "Content-Type: text/html; charset=UTF-8\r\n"
+                     "Content-Length: %zu\r\n\r\n"
+                     "%.*s",
+                     TURN_SOFTWARE,
+                     len,            /* para %zu */
+                     (int)len,       /* precisión de %.*s */
+                     content_http);  /* datos de %.*s */
 
-      ioa_network_buffer_handle nbh_http = ioa_network_buffer_allocate(s->e);
-      char *data = ioa_network_buffer_data(nbh_http);
-
-      strcpy(data, data_http);
-      ioa_network_buffer_set_size(nbh_http, strlen(data_http));
-      send_data_from_ioa_socket_nbh(s, NULL, nbh_http, TTL_IGNORE, TOS_IGNORE, NULL);
+            /* Enviar por socket */
+            ioa_network_buffer_handle nbh_http = ioa_network_buffer_allocate(s->e);
+            char *data = ioa_network_buffer_data(nbh_http);
+            strcpy(data, data_http);
+            ioa_network_buffer_set_size(nbh_http, strlen(data_http));
+            send_data_from_ioa_socket_nbh(s, NULL, nbh_http, TTL_IGNORE, TOS_IGNORE, NULL);
+        }
     }
-  }
 }
 
 void handle_http_echo(ioa_socket_handle s) { write_http_echo(s); }

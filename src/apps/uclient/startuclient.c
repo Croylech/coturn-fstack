@@ -1661,10 +1661,15 @@ again:
   } else {
 
     socket_set_nonblocking(clnet_fd);
+    
+    #ifndef USE_FSTACK
+      struct event *ev = event_new(client_event_base, clnet_fd, EV_READ | EV_PERSIST, client_input_handler, elem);
+      event_add(ev, NULL);
+    #else
+      struct MyEvent *ev = my_event_new(client_event_base, clnet_fd, EV_READ | EV_PERSIST, client_input_handler, elem);
+      my_event_add(ev,NULL);
+    #endif
 
-    struct event *ev = event_new(client_event_base, clnet_fd, EV_READ | EV_PERSIST, client_input_handler, elem);
-
-    event_add(ev, NULL);
 
     elem->input_tcp_data_ev = ev;
 

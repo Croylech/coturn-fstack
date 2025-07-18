@@ -92,7 +92,11 @@
 ///////////////////////////////
 
 struct bufferevent;
+#ifndef USE_FSTACK
 struct evconnlistener;
+#else
+struct MyEvConnListener;
+#endif
 struct str_buffer;
 
 ///////////////////////////////
@@ -1182,7 +1186,9 @@ static void cliserver_input_handler(struct evconnlistener *l, evutil_socket_t fd
 
   addr_cpy(&(clisession->addr), (ioa_addr *)sa);
 
+  #ifndef USE_FSTACK
   clisession->bev = bufferevent_socket_new(adminserver.event_base, fd, TURN_BUFFEREVENTS_OPTIONS);
+  #endif //da fallo de compilación, pero igualmente no voy a usar CLI asi que no es necesario
   bufferevent_setcb(clisession->bev, cli_socket_input_handler_bev, NULL, cli_eventcb_bev, clisession);
   bufferevent_setwatermark(clisession->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
   bufferevent_enable(clisession->bev, EV_READ); /* Start reading. */
@@ -1321,7 +1327,11 @@ static int send_socket_to_admin_server(ioa_engine_handle e, struct message_to_re
 }
 
 void setup_admin_thread(void) {
-  adminserver.event_base = turn_event_base_new();
+  #ifndef USE_FSTACK
+    adminserver.event_base = turn_event_base_new();
+  #else
+    adminserver.event_base = my_event_base_new();
+  #endif
   super_memory_t *sm = new_super_memory_region();
   adminserver.e = create_ioa_engine(sm, adminserver.event_base, turn_params.listener.tp, turn_params.relay_ifname,
                                     turn_params.relays_number, turn_params.relay_addrs, turn_params.default_relays,
@@ -1340,26 +1350,38 @@ void setup_admin_thread(void) {
 
   {
     struct bufferevent *pair[2];
-
+    #ifndef USE_FSTACK
     bufferevent_pair_new(adminserver.event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
-
+    
     adminserver.in_buf = pair[0];
     adminserver.out_buf = pair[1];
 
     bufferevent_setcb(adminserver.in_buf, admin_server_receive_message, NULL, NULL, &adminserver);
     bufferevent_enable(adminserver.in_buf, EV_READ);
+    #else
+    listener_fifo_t *lf = create_listener_fifo(admin_server_receive_message, &adminserver);
+    register_listener_fifo(lf);
+    adminserver.in_buf = lf;
+    adminserver.out_buf = lf;
+    #endif
   }
 
   {
     struct bufferevent *pair[2];
-
+    #ifndef USE_FSTACK
     bufferevent_pair_new(adminserver.event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
-
+    
     adminserver.https_in_buf = pair[0];
     adminserver.https_out_buf = pair[1];
 
     bufferevent_setcb(adminserver.https_in_buf, https_admin_server_receive_message, NULL, NULL, &adminserver);
     bufferevent_enable(adminserver.https_in_buf, EV_READ);
+    #else
+    listener_fifo_t *lf = create_listener_fifo(https_admin_server_receive_message, &adminserver);
+    register_listener_fifo(lf);
+    adminserver.https_in_buf = lf;
+    adminserver.https_out_buf = lf;
+    #endif
   }
 
   // Setup the web-admin server
@@ -1418,10 +1440,10 @@ void setup_admin_thread(void) {
     socket_tcp_set_keepalive(adminserver.listen_fd, TCP_SOCKET);
 
     socket_set_nonblocking(adminserver.listen_fd);
-
-    adminserver.l = evconnlistener_new(adminserver.event_base, cliserver_input_handler, &adminserver,
+    #ifndef USE_FSTACK
+    adminserver.l = my_evconnlistener_new(adminserver.event_base, cliserver_input_handler, &adminserver,
                                        LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, 1024, adminserver.listen_fd);
-
+    #endif
     if (!(adminserver.l)) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Cannot create CLI listener\n");
       socket_closesocket(adminserver.listen_fd);
@@ -1434,55 +1456,101 @@ void setup_admin_thread(void) {
   adminserver.sessions = ur_map_create();
 }
 
-void admin_server_receive_message(struct bufferevent *bev, void *ptr) {
-  UNUSED_ARG(ptr);
+void admin_server_receive_message(
+  #ifndef USE_FSTACK
+    struct bufferevent *bev,
+  #else
+    listener_fifo_t *lf,
+  #endif
+    void *ptr)
+{
+    UNUSED_ARG(ptr);
 
-  struct turn_session_info *tsi = (struct turn_session_info *)calloc(1, sizeof(struct turn_session_info));
-  int n = 0;
-  struct evbuffer *input = bufferevent_get_input(bev);
+    #ifndef USE_FSTACK
+      struct evbuffer *input = bufferevent_get_input(bev);
+      struct turn_session_info tsi_buf;
+      int n = 0;
+      while ((n = evbuffer_remove(input, &tsi_buf, sizeof(tsi_buf))) > 0) {
+          struct turn_session_info *tsi = NULL;
+          if (n == sizeof(tsi_buf)) {
+              tsi = calloc(1, sizeof(*tsi));
+              *tsi = tsi_buf;
+          } else {
+              fprintf(stderr, "%s: Weird CLI buffer error: size=%d\n", __FUNCTION__, n);
+              continue;
+          }
+    #else
+      void *item = NULL;
+      while ((item = my_fifo_pop(lf->fifo)) != NULL) {
+          struct turn_session_info *tsi = (struct turn_session_info *)item;
+    #endif
 
-  while ((n = evbuffer_remove(input, tsi, sizeof(struct turn_session_info))) > 0) {
-    if (n != sizeof(struct turn_session_info)) {
-      fprintf(stderr, "%s: Weird CLI buffer error: size=%d\n", __FUNCTION__, n);
-      continue;
-    }
+          ur_map_value_type old_t = 0;
+          if (ur_map_get(adminserver.sessions,
+                         (ur_map_key_type)tsi->id,
+                         &old_t) && old_t) {
+              struct turn_session_info *old = (struct turn_session_info *)old_t;
+              turn_session_info_clean(old);
+              free(old);
+              ur_map_del(adminserver.sessions,
+                         (ur_map_key_type)tsi->id,
+                         NULL);
+          }
 
-    ur_map_value_type t = 0;
-    if (ur_map_get(adminserver.sessions, (ur_map_key_type)tsi->id, &t) && t) {
-      struct turn_session_info *old = (struct turn_session_info *)t;
-      turn_session_info_clean(old);
-      free(old);
-      ur_map_del(adminserver.sessions, (ur_map_key_type)tsi->id, NULL);
-    }
-
-    if (tsi->valid) {
-      ur_map_put(adminserver.sessions, (ur_map_key_type)tsi->id, (ur_map_value_type)tsi);
-      tsi = (struct turn_session_info *)calloc(1, sizeof(struct turn_session_info));
-    } else {
-      turn_session_info_clean(tsi);
-    }
-  }
-
-  if (tsi) {
-    turn_session_info_clean(tsi);
-    free(tsi);
-  }
+          if (tsi->valid) {
+              ur_map_put(adminserver.sessions,
+                         (ur_map_key_type)tsi->id,
+                         (ur_map_value_type)tsi);
+          } else {
+              turn_session_info_clean(tsi);
+              free(tsi);
+          }
+    #ifndef USE_FSTACK
+      }
+    #else
+      }
+    #endif
 }
+
 
 int send_turn_session_info(struct turn_session_info *tsi) {
-  int ret = -1;
+    int ret = -1;
 
-  if (tsi) {
+    if (!tsi) {
+        return ret;
+    }
+
+#ifndef USE_FSTACK
     struct evbuffer *output = bufferevent_get_output(adminserver.out_buf);
     if (output) {
-      if (evbuffer_add(output, tsi, sizeof(struct turn_session_info)) >= 0) {
-        ret = 0;
-      }
+        if (evbuffer_add(output, tsi, sizeof(*tsi)) >= 0) {
+            ret = 0;
+        }
     }
-  }
+#else
+    if (adminserver.out_buf) {
+        struct turn_session_info *copy = malloc(sizeof(*copy));
+        if (!copy) {
+            TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR,
+                          "%s: Failed to allocate session info copy\n",
+                          __FUNCTION__);
+        } else {
+            memcpy(copy, tsi, sizeof(*tsi));
+            if (my_fifo_push(adminserver.out_buf->fifo, copy) < 0) {
+                TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR,
+                              "%s: FIFO full, dropping session info\n",
+                              __FUNCTION__);
+                free(copy);
+            } else {
+                ret = 0;
+            }
+        }
+    }
+#endif
 
-  return ret;
+    return ret;
 }
+
 
 /////////// HTTPS /////////////
 
@@ -3824,30 +3892,72 @@ static void https_input_handler(ioa_socket_handle s, int event_type, ioa_net_dat
   data->nbh = NULL;
 }
 
-void https_admin_server_receive_message(struct bufferevent *bev, void *ptr) {
-  UNUSED_ARG(ptr);
+void https_admin_server_receive_message(
+#ifndef USE_FSTACK
+    struct bufferevent *bev,
+#else
+    listener_fifo_t *lf,
+#endif
+    void *ptr)
+{
+    UNUSED_ARG(ptr);
 
-  ioa_socket_handle s = NULL;
-  int n = 0;
-  struct evbuffer *input = bufferevent_get_input(bev);
-
-  while ((n = evbuffer_remove(input, &s, sizeof(s))) > 0) {
-    if (n != sizeof(s)) {
-      fprintf(stderr, "%s: Weird HTTPS CLI buffer error: size=%d\n", __FUNCTION__, n);
-      continue;
+#ifndef USE_FSTACK
+    ioa_socket_handle s = NULL;
+    int n = 0;
+    struct evbuffer *input = bufferevent_get_input(bev);
+    while ((n = evbuffer_remove(input, &s, sizeof(s))) > 0) {
+        if (n != sizeof(s)) {
+            fprintf(stderr, "%s: Weird HTTPS CLI buffer error: size=%d\n",
+                    __FUNCTION__, n);
+            continue;
+        }
+        register_callback_on_ioa_socket(adminserver.e, s,
+                                        IOA_EV_READ,
+                                        https_input_handler,
+                                        NULL, 0);
+        handle_https(s, NULL);
     }
-
-    register_callback_on_ioa_socket(adminserver.e, s, IOA_EV_READ, https_input_handler, NULL, 0);
-
-    handle_https(s, NULL);
-  }
+#else
+    void *item = NULL;
+    while ((item = my_fifo_pop(lf->fifo)) != NULL) {
+        ioa_socket_handle s = (ioa_socket_handle)item;
+        register_callback_on_ioa_socket(adminserver.e, s,
+                                        IOA_EV_READ,
+                                        https_input_handler,
+                                        NULL, 0);
+        handle_https(s, NULL);
+    }
+#endif
 }
+
 
 void send_https_socket(ioa_socket_handle s) {
-  struct evbuffer *output = bufferevent_get_output(adminserver.https_out_buf);
-  if (output) {
-    evbuffer_add(output, &s, sizeof(s));
-  }
+#ifndef USE_FSTACK
+    struct evbuffer *output = bufferevent_get_output(adminserver.https_out_buf);
+    if (output) {
+        evbuffer_add(output, &s, sizeof(s));
+    }
+#else
+    listener_fifo_t *fifo = adminserver.https_out_buf;
+    if (fifo) {
+        // Hacemos una copia dinámica del socket handle
+        ioa_socket_handle *copy = malloc(sizeof(*copy));
+        if (!copy) {
+            TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Failed to allocate memory for HTTPS socket\n",
+                          __FUNCTION__);
+        } else {
+            *copy = s;
+            // Intentamos encolar; si falla, liberamos y lo reportamos
+            if (my_fifo_push(fifo->fifo, copy) < 0) {
+                TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping HTTPS socket\n",
+                              __FUNCTION__);
+                free(copy);
+            }
+        }
+    }
+#endif
 }
+
 
 ///////////////////////////////

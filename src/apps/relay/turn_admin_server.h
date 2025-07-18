@@ -67,14 +67,25 @@ struct admin_session {
 
 struct admin_server {
   evutil_socket_t listen_fd;
-  struct event_base *event_base;
+  #ifndef USE_FSTACK
+    struct event_base *event_base;
+  #else 
+    struct MyEventBase *event_base;
+  #endif
   ioa_engine_handle e;
   int verbose;
   struct evconnlistener *l;
-  struct bufferevent *in_buf;
-  struct bufferevent *out_buf;
-  struct bufferevent *https_in_buf;
-  struct bufferevent *https_out_buf;
+  #ifndef USE_FSTACK
+    struct bufferevent *in_buf;
+    struct bufferevent *out_buf;
+    struct bufferevent *https_in_buf;
+    struct bufferevent *https_out_buf;
+  #else
+    listener_fifo_t *in_buf;
+    listener_fifo_t *out_buf;
+    listener_fifo_t *https_in_buf;
+    listener_fifo_t *https_out_buf;
+  #endif
   ur_map *sessions;
   pthread_t thr;
 };
@@ -111,9 +122,21 @@ extern int web_admin_port;
 
 void setup_admin_thread(void);
 
-void admin_server_receive_message(struct bufferevent *bev, void *ptr);
-void https_admin_server_receive_message(struct bufferevent *bev, void *ptr);
+void admin_server_receive_message(
+  #ifndef USE_FSTACK
+    struct bufferevent *bev,
+  #else
+    listener_fifo_t *lf,
+  #endif
+    void *ptr);
 
+void https_admin_server_receive_message(
+#ifndef USE_FSTACK
+    struct bufferevent *bev,
+#else
+    listener_fifo_t *lf,
+#endif
+    void *ptr);
 int send_turn_session_info(struct turn_session_info *tsi);
 void send_https_socket(ioa_socket_handle s);
 

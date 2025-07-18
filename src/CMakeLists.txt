@@ -41,6 +41,7 @@ add_subdirectory(client)
 add_subdirectory(server)
 add_subdirectory(apps)
 
+
 if(USE_FSTACK)
     add_compile_definitions(USE_FSTACK)
 endif()
@@ -58,6 +59,11 @@ target_include_directories(fstack_wrappers PRIVATE
     ${DPDK_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/Fstack
     ${CMAKE_SOURCE_DIR}/f-stack/include
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/apps/relay
+    ${CMAKE_SOURCE_DIR}/src/server
+    ${CMAKE_SOURCE_DIR}/src/client
+    ${CMAKE_SOURCE_DIR}/src/apps/common
 )
 
 # Definiciones de compilación

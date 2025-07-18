@@ -56,8 +56,13 @@ struct tls_listener_relay_server_info {
   ioa_addr addr;
   ioa_engine_handle e;
   int verbose;
+  #ifndef USE_FSTACK
   struct evconnlistener *l;
   struct evconnlistener *sctp_l;
+  #else 
+  struct MyEvConnListener *l;
+  struct MyEvConnListener *sctp_l;
+  #endif
   struct message_to_relay sm;
   ioa_engine_new_connection_event_handler connect_cb;
   struct relay_server *relay_server;
@@ -65,7 +70,13 @@ struct tls_listener_relay_server_info {
 
 /////////////// io handlers ///////////////////
 
-static void server_input_handler(struct evconnlistener *l, evutil_socket_t fd, struct sockaddr *sa, int socklen,
+static void server_input_handler(
+  #ifndef USE_FSTACK
+  struct evconnlistener *l,
+  #else
+  struct MyEvConnListener *l,
+  #endif
+   evutil_socket_t fd, struct sockaddr *sa, int socklen,
                                  void *arg) {
 
   UNUSED_ARG(l);
@@ -124,7 +135,13 @@ static void server_input_handler(struct evconnlistener *l, evutil_socket_t fd, s
 
 #if !defined(TURN_NO_SCTP)
 
-static void sctp_server_input_handler(struct evconnlistener *l, evutil_socket_t fd, struct sockaddr *sa, int socklen,
+static void sctp_server_input_handler(
+  #ifndef USE_FSTACK
+  struct evconnlistener *l,
+  #else
+  struct MyEvConnListener *l,
+  #endif
+   evutil_socket_t fd, struct sockaddr *sa, int socklen,
                                       void *arg) {
 
   UNUSED_ARG(l);
@@ -228,9 +245,13 @@ static int create_server_listener(tls_listener_relay_server_type *server) {
   socket_tcp_set_keepalive(tls_listen_fd, TCP_SOCKET);
 
   socket_set_nonblocking(tls_listen_fd);
-
-  server->l = evconnlistener_new(server->e->event_base, server_input_handler, server,
+  #ifndef USE_FSTACK
+    server->l = evconnlistener_new(server->e->event_base, server_input_handler, server,
                                  LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, 1024, tls_listen_fd);
+  #else
+    server->l = my_evconnlistener_new(server->e->event_base, server_input_handler, server,
+                                 LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, 1024, tls_listen_fd);
+  #endif
 
   if (!(server->l)) {
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Cannot create TLS listener\n");
@@ -282,8 +303,13 @@ static int sctp_create_server_listener(tls_listener_relay_server_type *server) {
 
   socket_set_nonblocking(tls_listen_fd);
 
+  #ifndef USE_FSTACK
   server->sctp_l = evconnlistener_new(server->e->event_base, sctp_server_input_handler, server,
                                       LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, 1024, tls_listen_fd);
+  #else
+  server->sctp_l = my_evconnlistener_new(server->e->event_base, sctp_server_input_handler, server,
+                                      LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, 1024, tls_listen_fd);
+  #endif
 
   if (!(server->sctp_l)) {
     socket_closesocket(tls_listen_fd);

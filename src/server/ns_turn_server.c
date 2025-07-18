@@ -801,7 +801,7 @@ static ts_ur_super_session *get_session_from_mobile_map(turn_turnserver *server,
 
 static ts_ur_super_session *create_new_ss(turn_turnserver *server) {
   //
-  // printf("%s: 111.111: session size=%lu\n",__FUNCTION__,(unsigned long)sizeof(ts_ur_super_session));
+   printf("%s: 111.111: session size=%lu\n",__FUNCTION__,(unsigned long)sizeof(ts_ur_super_session));
   //
   ts_ur_super_session *ss = (ts_ur_super_session *)calloc(sizeof(ts_ur_super_session), 1);
   if (!ss) {
@@ -1697,6 +1697,7 @@ static int handle_turn_refresh(turn_turnserver *server, ts_ur_super_session *ss,
                                 STUN_METHOD_REFRESH, &message_integrity, &postpone_reply, can_resume) < 0) {
               if (!(*err_code)) {
                 *err_code = 401;
+                printf("Soy yo el que falla linea %d\n", __LINE__);
               }
             }
 
@@ -1910,6 +1911,7 @@ static void tcp_deliver_delayed_buffer(unsent_buffer *ub, ioa_socket_handle s, t
 
 static void tcp_peer_input_handler(ioa_socket_handle s, int event_type, ioa_net_data *in_buffer, void *arg,
                                    int can_resume) {
+  printf("Entrando a TCP peer input handler\n");
   if (!(event_type & IOA_EV_READ) || !arg) {
     return;
   }
@@ -2579,6 +2581,7 @@ static int handle_turn_channel_bind(turn_turnserver *server, ts_ur_super_session
                                     ioa_network_buffer_handle nbh) {
 
   FUNCSTART;
+  printf("DEBUG: ENTRO A HANDLE TURN CHANNEL BIND\n");
   uint16_t chnum = 0;
   ioa_addr peer_addr;
   addr_set_any(&peer_addr);
@@ -3305,12 +3308,33 @@ static int check_stun_auth(turn_turnserver *server, ts_ur_super_session *ss, stu
 
   /* MESSAGE_INTEGRITY ATTR: */
 
+  //DEPURACION
+
+    size_t buf_size = ioa_network_buffer_get_size(in_buffer->nbh);
+  uint8_t *buf_data = ioa_network_buffer_data(in_buffer->nbh);
+
+  printf("DEBUG: STUN buffer size=%zu\n", buf_size);
+  for (size_t i = 0; i < buf_size; ++i) {
+      printf("%02x ", buf_data[i]);
+      if ((i+1) % 16 == 0) printf("\n");
+  }
+  printf("\n");
+//FIN DEPURACION
+
   stun_attr_ref sar =
       stun_attr_get_first_by_type_str(ioa_network_buffer_data(in_buffer->nbh),
                                       ioa_network_buffer_get_size(in_buffer->nbh), STUN_ATTRIBUTE_MESSAGE_INTEGRITY);
 
+  if (sar) {
+    int uname_len = stun_attr_get_len(sar);
+    const uint8_t *uname_val = stun_attr_get_value(sar);
+    printf("DEBUG: Integridad de mensaje encontrado, len=%d, valor='%.*s'\n", uname_len, uname_len, uname_val);
+} else {
+    printf("DEBUG: Integridad de mensaje NO encontrado en el paquete STUN\n");
+}                                    
   if (!sar) {
     *err_code = 401;
+    printf("Soy yo el que falla linea %d\n", __LINE__);
     return create_challenge_response(ss, tid, resp_constructed, err_code, reason, nbh, method);
   }
 
@@ -3325,6 +3349,7 @@ static int check_stun_auth(turn_turnserver *server, ts_ur_super_session *ss, stu
     case SHA512SIZEBYTES:
     default:
       *err_code = 401;
+      printf("Soy yo el que falla linea %d\n", __LINE__);
       return create_challenge_response(ss, tid, resp_constructed, err_code, reason, nbh, method);
     };
   }
@@ -3377,7 +3402,15 @@ static int check_stun_auth(turn_turnserver *server, ts_ur_super_session *ss, stu
 
   sar = stun_attr_get_first_by_type_str(ioa_network_buffer_data(in_buffer->nbh),
                                         ioa_network_buffer_get_size(in_buffer->nbh), STUN_ATTRIBUTE_USERNAME);
-
+//DEBUG
+  if (sar) {
+    int uname_len = stun_attr_get_len(sar);
+    const uint8_t *uname_val = stun_attr_get_value(sar);
+    printf("DEBUG: USERNAME encontrado, len=%d, valor='%.*s'\n", uname_len, uname_len, uname_val);
+} else {
+    printf("DEBUG: USERNAME NO encontrado en el paquete STUN\n");
+}                                      
+//FIN DEBUG
   if (!sar) {
     *err_code = 400;
     return -1;
@@ -3455,6 +3488,7 @@ static int check_stun_auth(turn_turnserver *server, ts_ur_super_session *ss, stu
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "session %018llu: %s: Cannot find credentials of user <%s>\n",
                   (unsigned long long)(ss->id), __FUNCTION__, (char *)usname);
     *err_code = 401;
+    printf("Soy yo el que falla linea %d\n", __LINE__);
     return create_challenge_response(ss, tid, resp_constructed, err_code, reason, nbh, method);
   }
 
@@ -3474,6 +3508,7 @@ static int check_stun_auth(turn_turnserver *server, ts_ur_super_session *ss, stu
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "session %018llu: %s: user %s credentials are incorrect\n",
                   (unsigned long long)(ss->id), __FUNCTION__, (char *)usname);
     *err_code = 401;
+    printf("Soy yo el que falla linea %d\n", __LINE__);
     return create_challenge_response(ss, tid, resp_constructed, err_code, reason, nbh, method);
   }
 
@@ -4440,9 +4475,9 @@ static int refresh_relay_connection(turn_turnserver *server, ts_ur_super_session
 
 static int read_client_connection(turn_turnserver *server, ts_ur_super_session *ss, ioa_net_data *in_buffer,
                                   int can_resume, int count_usage) {
-
   FUNCSTART;
-
+  printf("DEBUG: read_client_connection: session=%p fd=%d len=%zu\n", ss, ss && ss->client_socket ? ss->client_socket->fd : -1,
+         in_buffer && in_buffer->nbh ? ioa_network_buffer_get_size(in_buffer->nbh) : 0);
   if (!server || !ss || !in_buffer || !(ss->client_socket) || ss->to_be_closed ||
       ioa_socket_tobeclosed(ss->client_socket)) {
     FUNCEND;
@@ -4515,6 +4550,7 @@ static int read_client_connection(turn_turnserver *server, ts_ur_super_session *
                                                     ioa_network_buffer_get_size(in_buffer->nbh), 0,
                                                     &(ss->enforce_fingerprints))) {
 
+    printf("DEBUG: Estamos siendo manejados correctamente?\n");
     ioa_network_buffer_handle nbh = ioa_network_buffer_allocate(server->e);
     int resp_constructed = 0;
 
@@ -4671,6 +4707,8 @@ static int attach_socket_to_session(turn_turnserver *server, ioa_socket_handle s
 
       if (register_callback_on_ioa_socket(server->e, s, IOA_EV_READ, client_input_handler, ss, 0) < 0) {
         return -1;
+      }else{
+        printf("LOG: register_callback_on_ioa_socket OK\n");
       }
 
       set_ioa_socket_session(s, ss);
@@ -4684,6 +4722,7 @@ static int attach_socket_to_session(turn_turnserver *server, ioa_socket_handle s
 }
 
 int open_client_connection_session(turn_turnserver *server, struct socket_message *sm) {
+  printf("LOG: Entrando en open_client_connection_session\n");
   int ret = 0;
   FUNCSTART;
   if (!server) {
@@ -4700,6 +4739,8 @@ int open_client_connection_session(turn_turnserver *server, struct socket_messag
 
   if (register_callback_on_ioa_socket(server->e, ss->client_socket, IOA_EV_READ, client_input_handler, ss, 0) < 0) {
     ret = -1;
+  }else{
+    printf("LOG: register_callback_on_ioa_socket 2 OK\n");
   }
 
   set_ioa_socket_session(ss->client_socket, ss);
@@ -4728,7 +4769,7 @@ int open_client_connection_session(turn_turnserver *server, struct socket_messag
 
 static void peer_input_handler(ioa_socket_handle s, int event_type, ioa_net_data *in_buffer, void *arg,
                                int can_resume) {
-
+  printf("Entrando a peer_input_handler\n");                              
   if (!(event_type & IOA_EV_READ) || !arg) {
     return;
   }
@@ -4845,6 +4886,7 @@ static void peer_input_handler(ioa_socket_handle s, int event_type, ioa_net_data
 
 static void client_input_handler(ioa_socket_handle s, int event_type, ioa_net_data *data, void *arg, int can_resume) {
 
+  printf("DEBUG: Entrando en client_input_handler\n");
   if (!arg) {
     return;
   }

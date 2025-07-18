@@ -71,7 +71,11 @@ extern int root_tls_ctx_num;
 extern int RTP_PACKET_INTERVAL;
 extern uint8_t relay_transport;
 extern unsigned char client_ifname[1025];
+#ifndef USE_FSTACK
 extern struct event_base *client_event_base;
+#else
+extern struct MyEventBase *client_event_base;
+#endif
 extern bool passive_tcp;
 extern bool mandatory_channel_padding;
 extern bool negative_test;

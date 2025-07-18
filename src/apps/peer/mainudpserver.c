@@ -108,7 +108,7 @@ int main(int argc, char **argv) {
 
   server_type *server = start_udp_server(verbose, ifname, local_addr_list, las, port);
 #ifdef USE_FSTACK
-  ff_run(fstack_main_udp_loop, server);
+  printf("implementar :)");
 #else
   run_udp_server(server);
   clean_udp_server(server);

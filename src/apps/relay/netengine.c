@@ -32,10 +32,9 @@
  * SUCH DAMAGE.
  */
 
+#include "wrappers.h"
 #include "mainrelay.h"
-#ifdef USE_FSTACK
-#include <ff_api.h>
-#endif
+
 #include "ns_turn_ioalib.h"
 
 //////////// Backward compatibility with OpenSSL 1.0.x //////////////
@@ -56,9 +55,16 @@ typedef unsigned char authserver_id;
 
 struct auth_server {
   authserver_id id;
-  struct event_base *event_base;
-  struct bufferevent *in_buf;
-  struct bufferevent *out_buf;
+  
+  #ifndef USE_FSTACK
+    struct event_base *event_base;
+    struct bufferevent *in_buf;
+    struct bufferevent *out_buf;
+  #else
+    struct MyEventBase *event_base;
+    listener_fifo_t *in_buf;
+    listener_fifo_t *out_buf;
+  #endif
   pthread_t thr;
   redis_context_handle rch;
 };
@@ -81,7 +87,13 @@ static struct relay_server *get_relay_server(turnserver_id id);
 
 //////////////////////////////////////////////
 
-static void run_events(struct event_base *eb, ioa_engine_handle e);
+static void run_events(
+  #ifndef USE_FSTACK
+  struct event_base *eb,
+  #else
+  struct MyEventBase *eb,
+  #endif
+  ioa_engine_handle e);
 static void setup_relay_server(struct relay_server *rs, ioa_engine_handle e, int to_set_rfc5780);
 
 /////////////// BARRIERS ///////////////////
@@ -299,7 +311,11 @@ void del_tls_alternate_server(const char *saddr) {
 typedef struct update_ssl_ctx_cb_args {
   ioa_engine_handle engine;
   turn_params_t *params;
+  #ifndef USE_FSTACK
   struct event *next;
+  #else 
+  struct MyEvent *next;
+  #endif
 } update_ssl_ctx_cb_args_t;
 
 /*
@@ -330,13 +346,17 @@ static void update_ssl_ctx(evutil_socket_t sock, short events, update_ssl_ctx_cb
 #if DTLS_SUPPORTED
   replace_one_ssl_ctx(&e->dtls_ctx, params->dtls_ctx);
 #endif
+#ifndef USE_FSTACK
   struct event *next = args->next;
+#else
+  struct MyEvent *next = args->next;
+#endif
   TURN_MUTEX_UNLOCK(&turn_params.tls_mutex);
-
+#ifndef USE_FSTACK
   if (next != NULL) {
     event_active(next, EV_READ, 0);
   }
-
+#endif
   UNUSED_ARG(sock);
   UNUSED_ARG(events);
 }
@@ -348,10 +368,17 @@ void set_ssl_ctx(ioa_engine_handle e, turn_params_t *params) {
   args->next = NULL;
 
   update_ssl_ctx(-1, 0, args);
-
-  struct event_base *base = e->event_base;
+  #ifndef USE_FSTACK
+    struct event_base *base = e->event_base;
+  #else
+    struct MyEventBase *base = e->event_base;
+  #endif
   if (base != NULL) {
-    struct event *ev = event_new(base, -1, EV_PERSIST, (event_callback_fn)update_ssl_ctx, (void *)args);
+    #ifndef USE_FSTACK
+      struct event *ev = event_new(base, -1, EV_PERSIST, (event_callback_fn)update_ssl_ctx, (void *)args);
+    #else
+      struct MyEvent *ev = my_event_new(base,-1,EV_PERSIST,(event_callback_fn)update_ssl_ctx,(void *)args);
+    #endif
     TURN_MUTEX_LOCK(&turn_params.tls_mutex);
     args->next = params->tls_ctx_update_ev;
     params->tls_ctx_update_ev = ev;
@@ -472,65 +499,131 @@ static TURN_MUTEX_DECLARE(auth_message_counter_mutex);
 static authserver_id auth_message_counter = 1;
 
 void send_auth_message_to_auth_server(struct auth_message *am) {
-  TURN_MUTEX_LOCK(&auth_message_counter_mutex);
-  if (auth_message_counter >= authserver_number) {
-    auth_message_counter = 1;
-  } else if (auth_message_counter < 1) {
-    auth_message_counter = 1;
-  }
-  authserver_id sn = auth_message_counter++;
-  TURN_MUTEX_UNLOCK(&auth_message_counter_mutex);
+    TURN_MUTEX_LOCK(&auth_message_counter_mutex);
+    if (auth_message_counter >= authserver_number) {
+        auth_message_counter = 1;
+    } else if (auth_message_counter < 1) {
+        auth_message_counter = 1;
+    }
+    authserver_id sn = auth_message_counter++;
+    TURN_MUTEX_UNLOCK(&auth_message_counter_mutex);
 
-  struct evbuffer *output = bufferevent_get_output(authserver[sn].out_buf);
-  if (evbuffer_add(output, am, sizeof(struct auth_message)) < 0) {
-    fprintf(stderr, "%s: Weird buffer error\n", __FUNCTION__);
-  }
+    #ifndef USE_FSTACK
+    struct evbuffer *output = bufferevent_get_output(authserver[sn].out_buf);
+    if (evbuffer_add(output, am, sizeof(struct auth_message)) < 0) {
+      fprintf(stderr, "%s: Weird buffer error\n", __FUNCTION__);
+    }
+    #else
+    if (authserver[sn].out_buf) {
+        struct auth_message *copy = malloc(sizeof(*copy));
+        if (!copy) {
+            fprintf(stderr, "%s: Failed to allocate auth_message\n", __FUNCTION__);
+            return;
+        }
+        memcpy(copy, am, sizeof(*copy));
+        printf("AUTH: Enviando mensaje de autenticación a authserver[%d] para usuario '%s', realm '%s'\n", (int)sn, am->username, am->realm);
+        if (my_fifo_push(authserver[sn].out_buf->fifo, copy) < 0) {
+            fprintf(stderr, "%s: FIFO full, dropping message\n", __FUNCTION__);
+            free(copy);
+        }
+    } else {
+        fprintf(stderr, "%s: out_buf is NULL for auth server %d\n", __FUNCTION__, (int)sn);
+    }
+    #endif
 }
 
-static void auth_server_receive_message(struct bufferevent *bev, void *ptr) {
-  UNUSED_ARG(ptr);
+#ifndef USE_FSTACK
+  static void auth_server_receive_message(struct bufferevent *bev, void *ptr) {
+    UNUSED_ARG(ptr);
 
-  struct auth_message am;
-  int n = 0;
-  struct evbuffer *input = bufferevent_get_input(bev);
+    struct auth_message am;
+    int n = 0;
+    struct evbuffer *input = bufferevent_get_input(bev);
 
-  while ((n = evbuffer_remove(input, &am, sizeof(struct auth_message))) > 0) {
-    if (n != sizeof(struct auth_message)) {
-      fprintf(stderr, "%s: Weird buffer error: size=%d\n", __FUNCTION__, n);
-      continue;
-    }
+    while ((n = evbuffer_remove(input, &am, sizeof(struct auth_message))) > 0) {
+      if (n != sizeof(struct auth_message)) {
+        fprintf(stderr, "%s: Weird buffer error: size=%d\n", __FUNCTION__, n);
+        continue;
+      }
 
-    {
-      hmackey_t key;
-      if (get_user_key(am.in_oauth, &(am.out_oauth), &(am.max_session_time), am.username, am.realm, key,
-                       am.in_buffer.nbh) < 0) {
-        am.success = 0;
+      {
+        hmackey_t key;
+        if (get_user_key(am.in_oauth, &(am.out_oauth), &(am.max_session_time), am.username, am.realm, key,
+                        am.in_buffer.nbh) < 0) {
+          am.success = 0;
+        } else {
+          memcpy(am.key, key, sizeof(hmackey_t));
+          am.success = 1;
+        }
+      }
+
+      struct evbuffer *output = NULL;
+      struct relay_server *relay_server = get_relay_server(am.id);
+      if (relay_server) {
+        output = bufferevent_get_output(relay_server->auth_out_buf);
       } else {
-        memcpy(am.key, key, sizeof(hmackey_t));
-        am.success = 1;
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: can't find relay for turn_server_id: %d\n", __FUNCTION__, (int)am.id);
+      }
+
+      if (output) {
+        evbuffer_add(output, &am, sizeof(struct auth_message));
+      } else {
+        ioa_network_buffer_delete(NULL, am.in_buffer.nbh);
+        am.in_buffer.nbh = NULL;
       }
     }
-
-    struct evbuffer *output = NULL;
-    struct relay_server *relay_server = get_relay_server(am.id);
-    if (relay_server) {
-      output = bufferevent_get_output(relay_server->auth_out_buf);
-    } else {
-      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: can't find relay for turn_server_id: %d\n", __FUNCTION__, (int)am.id);
-    }
-
-    if (output) {
-      evbuffer_add(output, &am, sizeof(struct auth_message));
-    } else {
-      ioa_network_buffer_delete(NULL, am.in_buffer.nbh);
-      am.in_buffer.nbh = NULL;
-    }
   }
+#else
+void auth_server_receive_message_from_fifo(listener_fifo_t *lf, void *ptr) {
+    UNUSED_ARG(ptr);
+
+    struct auth_message *am;
+
+    while ((am = (struct auth_message *)my_fifo_pop(lf->fifo)) != NULL) {
+        printf("AUTH: Recibido mensaje en auth_server_receive_message_from_fifo para usuario '%s', realm '%s'\n", am->username, am->realm);
+
+        hmackey_t key;
+        //DEBUG: Verificar si el usuario está en static_accounts
+        ur_string_map_value_type ukey = NULL;
+if (ur_string_map_get(turn_params.default_users_db.ram_db.static_accounts, (ur_string_map_key_type)am->username, &ukey)) {
+    printf("DEBUG: Usuario '%s' encontrado en static_accounts\n", am->username);
+} else {
+    printf("DEBUG: Usuario '%s' NO encontrado en static_accounts\n", am->username);
 }
+        printf("DEBUG: Esto se está lanzando?\n");
+        int res = get_user_key(am->in_oauth, &(am->out_oauth), &(am->max_session_time),
+                               am->username, am->realm, key, am->in_buffer.nbh);
+        if (res < 0) {
+            am->success = 0;
+            printf("AUTH: Falló autenticación para usuario '%s', realm '%s'\n", am->username, am->realm);
+        } else {
+            memcpy(am->key, key, sizeof(hmackey_t));
+            am->success = 1;
+            printf("AUTH: Autenticación exitosa para usuario '%s', realm '%s'\n", am->username, am->realm);
+        }
+
+        struct relay_server *relay_server = get_relay_server(am->id);
+        if (relay_server && relay_server->auth_out_buf) {
+            struct auth_message *copy = malloc(sizeof(*copy));
+            if (copy) {
+                memcpy(copy, am, sizeof(*am));
+                printf("AUTH: Enviando respuesta de autenticación a relay_server %d\n", (int)am->id);
+                my_fifo_push(relay_server->auth_out_buf->fifo, copy);
+            }
+        } else {
+            TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: can't find relay for turn_server_id: %d\n", __FUNCTION__, (int)am->id);
+            ioa_network_buffer_delete(NULL, am->in_buffer.nbh);
+            am->in_buffer.nbh = NULL;
+        }
+
+        free(am);  // importante: liberar el original
+    }
+}
+#endif
 
 static int send_socket_to_general_relay(ioa_engine_handle e, struct message_to_relay *sm) {
   struct relay_server *rdest = sm->relay_server;
-
+  printf("LOG: %s: Sending socket to general relay server\n", __FUNCTION__);
   if (!rdest) {
     size_t dest = (hash_int32(addr_get_port(&(sm->m.sm.nd.src_addr)))) % get_real_general_relay_servers_number();
     rdest = general_relay_servers[dest];
@@ -540,24 +633,41 @@ static int send_socket_to_general_relay(ioa_engine_handle e, struct message_to_r
 
   smptr->t = RMT_SOCKET;
 
-  struct evbuffer *output = NULL;
+    
   int success = 0;
 
   if (!rdest) {
     goto label_end;
   }
 
-  output = bufferevent_get_output(rdest->out_buf);
-
+#ifndef USE_FSTACK
+  struct evbuffer *output = bufferevent_get_output(rdest->out_buf);
   if (output) {
-
     if (evbuffer_add(output, smptr, sizeof(struct message_to_relay)) < 0) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Cannot add message to relay output buffer\n", __FUNCTION__);
     } else {
       success = 1;
+      printf("LOG: %s: Message added to relay output buffer\n", __FUNCTION__);
       smptr->m.sm.nd.nbh = NULL;
     }
   }
+#else
+  if (rdest->out_buf) {
+    struct message_to_relay *copy = malloc(sizeof(*copy));
+    if (!copy) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Failed to allocate message copy\n", __FUNCTION__);
+    } else {
+      memcpy(copy, smptr, sizeof(*copy));
+      if (my_fifo_push(rdest->out_buf->fifo, copy) < 0) {
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
+        free(copy);
+      } else {
+        success = 1;
+        smptr->m.sm.nd.nbh = NULL;
+      }
+    }
+  }
+#endif
 
 label_end:
 
@@ -588,8 +698,7 @@ static int send_socket_to_relay(turnserver_id id, uint64_t cid, stun_tid *tid, i
   }
 
   switch (rmt) {
-  case (RMT_CB_SOCKET): {
-
+  case RMT_CB_SOCKET:
     if (nd && nd->nbh) {
       sm.m.cb_sm.id = id;
       sm.m.cb_sm.connection_id = (tcp_connection_id)cid;
@@ -607,11 +716,9 @@ static int send_socket_to_relay(turnserver_id id, uint64_t cid, stun_tid *tid, i
       s_to_delete = NULL;
       ret = 0;
     }
-
     break;
-  }
-  case (RMT_MOBILE_SOCKET): {
 
+  case RMT_MOBILE_SOCKET:
     if (nd && nd->nbh) {
       sm.m.sm.s = s;
       addr_cpy(&(sm.m.sm.nd.src_addr), &(nd->src_addr));
@@ -623,20 +730,18 @@ static int send_socket_to_relay(turnserver_id id, uint64_t cid, stun_tid *tid, i
       nd->nbh = NULL;
       s_to_delete = NULL;
       ret = 0;
-
     } else {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Empty buffer with mobile socket\n", __FUNCTION__);
     }
-
     break;
-  }
-  default: {
+
+  default:
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: UNKNOWN RMT message: %d\n", __FUNCTION__, (int)rmt);
-  }
+    break;
   }
 
   if (ret == 0) {
-
+#ifndef USE_FSTACK
     struct evbuffer *output = bufferevent_get_output(rs->out_buf);
     if (output) {
       evbuffer_add(output, &sm, sizeof(struct message_to_relay));
@@ -645,6 +750,28 @@ static int send_socket_to_relay(turnserver_id id, uint64_t cid, stun_tid *tid, i
       ret = -1;
       s_to_delete = s;
     }
+#else
+    if (rs->out_buf) {
+      struct message_to_relay *copy = malloc(sizeof(*copy));
+      if (!copy) {
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Failed to allocate message copy\n", __FUNCTION__);
+        ret = -1;
+        s_to_delete = s;
+      } else {
+        memcpy(copy, &sm, sizeof(*copy));
+        if (my_fifo_push(rs->out_buf->fifo, copy) < 0) {
+          TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
+          free(copy);
+          ret = -1;
+          s_to_delete = s;
+        }
+      }
+    } else {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: out_buf is NULL for relay\n", __FUNCTION__);
+      ret = -1;
+      s_to_delete = s;
+    }
+#endif
   }
 
 err:
@@ -668,6 +795,7 @@ err:
   return ret;
 }
 
+
 int send_session_cancellation_to_relay(turnsession_id sid) {
   int ret = 0;
 
@@ -687,15 +815,33 @@ int send_session_cancellation_to_relay(turnsession_id sid) {
   sm.relay_server = rs;
   sm.m.csm.id = sid;
 
-  {
-    struct evbuffer *output = bufferevent_get_output(rs->out_buf);
-    if (output) {
-      evbuffer_add(output, &sm, sizeof(struct message_to_relay));
-    } else {
-      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Empty output buffer\n", __FUNCTION__);
-      ret = -1;
-    }
+#ifndef USE_FSTACK
+  struct evbuffer *output = bufferevent_get_output(rs->out_buf);
+  if (output) {
+    evbuffer_add(output, &sm, sizeof(struct message_to_relay));
+  } else {
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Empty output buffer\n", __FUNCTION__);
+    ret = -1;
   }
+#else
+  if (rs->out_buf) {
+    struct message_to_relay *copy = malloc(sizeof(*copy));
+    if (!copy) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Failed to allocate message copy\n", __FUNCTION__);
+      ret = -1;
+    } else {
+      memcpy(copy, &sm, sizeof(*copy));
+      if (my_fifo_push(rs->out_buf->fifo, copy) < 0) {
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
+        free(copy);
+        ret = -1;
+      }
+    }
+  } else {
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: out_buf is NULL for relay\n", __FUNCTION__);
+    ret = -1;
+  }
+#endif
 
 err:
   return ret;
@@ -798,65 +944,118 @@ static void handle_relay_auth_message(struct relay_server *rs, struct auth_messa
     am->in_buffer.nbh = NULL;
   }
 }
+#ifndef USE_FSTACK
+  static void relay_receive_message(struct bufferevent *bev, void *ptr) {
+    struct message_to_relay sm;
+    int n = 0;
+    struct evbuffer *input = bufferevent_get_input(bev);
+    struct relay_server *rs = (struct relay_server *)ptr;
 
-static void relay_receive_message(struct bufferevent *bev, void *ptr) {
-  struct message_to_relay sm;
-  int n = 0;
-  struct evbuffer *input = bufferevent_get_input(bev);
-  struct relay_server *rs = (struct relay_server *)ptr;
+    while ((n = evbuffer_remove(input, &sm, sizeof(struct message_to_relay))) > 0) {
 
-  while ((n = evbuffer_remove(input, &sm, sizeof(struct message_to_relay))) > 0) {
+      if (n != sizeof(struct message_to_relay)) {
+        perror("Weird buffer error\n");
+        continue;
+      }
 
-    if (n != sizeof(struct message_to_relay)) {
-      perror("Weird buffer error\n");
-      continue;
+      handle_relay_message(rs, &sm);
     }
-
-    handle_relay_message(rs, &sm);
   }
-}
 
-static void relay_receive_auth_message(struct bufferevent *bev, void *ptr) {
-  struct auth_message am;
-  int n = 0;
-  struct evbuffer *input = bufferevent_get_input(bev);
-  struct relay_server *rs = (struct relay_server *)ptr;
+  static void relay_receive_auth_message(struct bufferevent *bev, void *ptr) {
+    struct auth_message am;
+    int n = 0;
+    struct evbuffer *input = bufferevent_get_input(bev);
+    struct relay_server *rs = (struct relay_server *)ptr;
 
-  while ((n = evbuffer_remove(input, &am, sizeof(struct auth_message))) > 0) {
+    while ((n = evbuffer_remove(input, &am, sizeof(struct auth_message))) > 0) {
 
-    if (n != sizeof(struct auth_message)) {
-      perror("Weird auth_buffer error\n");
-      continue;
+      if (n != sizeof(struct auth_message)) {
+        perror("Weird auth_buffer error\n");
+        continue;
+      }
+
+      handle_relay_auth_message(rs, &am);
     }
-
-    handle_relay_auth_message(rs, &am);
   }
-}
+#else
+  void relay_receive_message_from_fifo(listener_fifo_t *lf, void *ptr) {
+    printf("LOG: %s: relay_receive_message_from_fifo\n", __FUNCTION__);
+    struct relay_server *rs = (struct relay_server *)ptr;
+    struct message_to_relay *sm;
 
+    while ((sm = (struct message_to_relay *)my_fifo_pop(lf->fifo)) != NULL) {
+      handle_relay_message(rs, sm);
+      free(sm);  // muy importante
+    }
+  }
+
+void relay_receive_auth_message_from_fifo(listener_fifo_t *lf, void *ptr) {
+    struct relay_server *rs = (struct relay_server *)ptr;
+    struct auth_message *am;
+
+    while ((am = (struct auth_message *)my_fifo_pop(lf->fifo)) != NULL) {
+        printf("AUTH: relay_receive_auth_message_from_fifo para usuario '%s', realm '%s', success=%d\n", am->username, am->realm, am->success);
+        handle_relay_auth_message(rs, am);
+        free(am);  // liberar si fue malloc() al enviar
+    }
+}
+#endif
 static int send_message_from_listener_to_client(ioa_engine_handle e, ioa_network_buffer_handle nbh, ioa_addr *origin,
                                                 ioa_addr *destination) {
-
   struct message_to_listener mm;
+  memset(&mm, 0, sizeof(mm));
+
   mm.t = LMT_TO_CLIENT;
   addr_cpy(&(mm.m.tc.origin), origin);
   addr_cpy(&(mm.m.tc.destination), destination);
+
   mm.m.tc.nbh = ioa_network_buffer_allocate(e);
   ioa_network_buffer_header_init(mm.m.tc.nbh);
   memcpy(ioa_network_buffer_data(mm.m.tc.nbh), ioa_network_buffer_data(nbh), ioa_network_buffer_get_size(nbh));
   ioa_network_buffer_set_size(mm.m.tc.nbh, ioa_network_buffer_get_size(nbh));
 
+#ifndef USE_FSTACK
   struct evbuffer *output = bufferevent_get_output(turn_params.listener.out_buf);
-
-  evbuffer_add(output, &mm, sizeof(struct message_to_listener));
+  if (output) {
+    evbuffer_add(output, &mm, sizeof(struct message_to_listener));
+  } else {
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Empty listener output buffer\n", __FUNCTION__);
+  }
+#else
+  if (turn_params.listener.out_buf) {
+    struct message_to_listener *copy = malloc(sizeof(*copy));
+    if (!copy) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Failed to allocate message copy\n", __FUNCTION__);
+    } else {
+      memcpy(copy, &mm, sizeof(*copy));
+      if (my_fifo_push(turn_params.listener.out_buf->fifo, copy) < 0) {
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
+        free(copy);
+      }
+    }
+  } else {
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: listener.out_buf is NULL\n", __FUNCTION__);
+  }
+#endif
 
   return 0;
 }
 
-static void listener_receive_message(struct bufferevent *bev, void *ptr) {
+static void listener_receive_message(
+#ifndef USE_FSTACK
+    struct bufferevent *bev,
+#else
+    listener_fifo_t *lf,
+#endif
+    void *ptr) {
+
   UNUSED_ARG(ptr);
 
   struct message_to_listener mm;
   int n = 0;
+
+#ifndef USE_FSTACK
   struct evbuffer *input = bufferevent_get_input(bev);
 
   while ((n = evbuffer_remove(input, &mm, sizeof(struct message_to_listener))) > 0) {
@@ -864,6 +1063,12 @@ static void listener_receive_message(struct bufferevent *bev, void *ptr) {
       perror("Weird buffer error\n");
       continue;
     }
+#else
+  struct message_to_listener *msg;
+  while ((msg = (struct message_to_listener *)my_fifo_pop(lf->fifo)) != NULL) {
+    memcpy(&mm, msg, sizeof(mm));
+    free(msg);
+#endif
 
     if (mm.t != LMT_TO_CLIENT) {
       perror("Weird buffer type\n");
@@ -873,11 +1078,10 @@ static void listener_receive_message(struct bufferevent *bev, void *ptr) {
     size_t relay_thread_index = 0;
 
     if (turn_params.net_engine_version == NEV_UDP_SOCKET_PER_THREAD) {
-      size_t ri;
-      for (ri = 0; ri < get_real_general_relay_servers_number(); ri++) {
+      for (size_t ri = 0; ri < get_real_general_relay_servers_number(); ri++) {
         if (!(general_relay_servers[ri])) {
-          TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Wrong general relay number: %d, total %d\n", __FUNCTION__, (int)ri,
-                        (int)get_real_general_relay_servers_number());
+          TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Wrong general relay number: %zu, total %d\n",
+                        __FUNCTION__, (size_t)ri, get_real_general_relay_servers_number());
         } else if (pthread_equal(general_relay_servers[ri]->thr, pthread_self())) {
           relay_thread_index = ri;
           break;
@@ -885,9 +1089,8 @@ static void listener_receive_message(struct bufferevent *bev, void *ptr) {
       }
     }
 
-    size_t i;
     int found = 0;
-    for (i = 0; i < turn_params.listener.addrs_number; i++) {
+    for (size_t i = 0; i < turn_params.listener.addrs_number; i++) {
       if (addr_eq_no_port(turn_params.listener.encaddrs[i], &mm.m.tc.origin)) {
         int o_port = addr_get_port(&mm.m.tc.origin);
         if (turn_params.listener.addrs_number == turn_params.listener.services_number) {
@@ -936,11 +1139,14 @@ static void listener_receive_message(struct bufferevent *bev, void *ptr) {
     mm.m.tc.nbh = NULL;
   }
 }
-
 // <<== communications between listener and relays
 
 static ioa_engine_handle create_new_listener_engine(void) {
-  struct event_base *eb = turn_event_base_new();
+  #ifndef USE_FSTACK
+    struct event_base *eb = turn_event_base_new();
+  #else
+    struct MyEventBase *eb = my_event_base_new();
+  #endif
   super_memory_t *sm = new_super_memory_region();
   ioa_engine_handle e =
       create_ioa_engine(sm, eb, turn_params.listener.tp, turn_params.relay_ifname, turn_params.relays_number,
@@ -980,12 +1186,11 @@ static void setup_listener(void) {
   turn_params.listener.tp = turnipports_create(sm, turn_params.min_port, turn_params.max_port);
 #ifndef USE_FSTACK 
   turn_params.listener.event_base = turn_event_base_new();
-  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "IO method: %s\n", event_base_get_method(turn_params.listener.event_base));
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "IO method: %s\n", event_base_get_method(turn_params.listener.event_base)); 
 #else
   turn_params.listener.event_base = my_event_base_new();
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "IO method: F-stack Epoll");
 #endif
-  
 
   turn_params.listener.ioa_eng = create_ioa_engine(
       sm, turn_params.listener.event_base, turn_params.listener.tp, turn_params.relay_ifname, turn_params.relays_number,
@@ -1005,13 +1210,20 @@ static void setup_listener(void) {
   ioa_engine_set_rtcp_map(turn_params.listener.ioa_eng, turn_params.listener.rtcpmap);
 
   {
+    #ifndef USE_FSTACK
     struct bufferevent *pair[2];
 
-    bufferevent_pair_new(turn_params.listener.event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
-    turn_params.listener.in_buf = pair[0];
-    turn_params.listener.out_buf = pair[1];
-    bufferevent_setcb(turn_params.listener.in_buf, listener_receive_message, NULL, NULL, &turn_params.listener);
-    bufferevent_enable(turn_params.listener.in_buf, EV_READ);
+      bufferevent_pair_new(turn_params.listener.event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+      turn_params.listener.in_buf = pair[0];
+      turn_params.listener.out_buf = pair[1];
+      bufferevent_setcb(turn_params.listener.in_buf, listener_receive_message, NULL, NULL, &turn_params.listener);
+      bufferevent_enable(turn_params.listener.in_buf, EV_READ);
+    #else
+      listener_fifo_t *lf = create_listener_fifo(listener_receive_message, &turn_params.listener);
+      register_listener_fifo(lf);
+      turn_params.listener.in_buf = lf;
+      turn_params.listener.out_buf = lf;
+    #endif
   }
 
   if (turn_params.rfc5780 == true) {
@@ -1584,7 +1796,13 @@ static int get_alt_addr(ioa_addr *addr, ioa_addr *alt_addr) {
   return -1;
 }
 
-static void run_events(struct event_base *eb, ioa_engine_handle e) {
+static void run_events(
+  #ifndef USE_FSTACK
+  struct event_base *eb,
+  #else
+  struct MyEventBase *eb,
+  #endif
+  ioa_engine_handle e) {
   if (!eb && e) {
     eb = e->event_base;
   }
@@ -1597,16 +1815,21 @@ static void run_events(struct event_base *eb, ioa_engine_handle e) {
 
   timeout.tv_sec = 5;
   timeout.tv_usec = 0;
-
+  #ifndef USE_FSTACK
   event_base_loopexit(eb, &timeout);
 
   event_base_dispatch(eb);
+  #else
+  int tiempo_ms = timeout.tv_sec * 1000 + timeout.tv_usec / 1000;
+    my_event_loop(eb,tiempo_ms);
+  #endif
 }
 
 void run_listener_server(struct listener_server *ls) {
   unsigned int cycle = 0;
+#ifndef USE_FSTACK
   while (!turn_params.stop_turn_server) {
-
+#endif
 #if !defined(TURN_NO_SYSTEMD)
     sd_notify(0, "READY=1");
 #endif
@@ -1625,11 +1848,23 @@ void run_listener_server(struct listener_server *ls) {
     run_events(ls->event_base, ls->ioa_eng);
 
     rollover_logfile();
+#ifndef USE_FSTACK
   }
-
-#if !defined(TURN_NO_SYSTEMD)
-  sd_notify(0, "STOPPING=1");
+  //ff_stop_run?
 #endif
+  #ifdef USE_FSTACK
+  if(turn_params.stop_turn_server){
+  #endif
+#if !defined(TURN_NO_SYSTEMD)
+
+  sd_notify(0, "STOPPING=1");
+
+
+#endif
+  #ifdef USE_FSTACK
+  my_stop();
+  }
+  #endif
 }
 
 static void setup_relay_server(struct relay_server *rs, ioa_engine_handle e, int to_set_rfc5780) {
@@ -1639,7 +1874,11 @@ static void setup_relay_server(struct relay_server *rs, ioa_engine_handle e, int
     rs->event_base = e->event_base;
     rs->ioa_eng = e;
   } else {
+    #ifndef USE_FSTACK
     rs->event_base = turn_event_base_new();
+    #else
+    rs->event_base = my_event_base_new();
+    #endif
     rs->ioa_eng = create_ioa_engine(rs->sm, rs->event_base, turn_params.listener.tp, turn_params.relay_ifname,
                                     turn_params.relays_number, turn_params.relay_addrs, turn_params.default_relays,
                                     turn_params.verbose
@@ -1652,17 +1891,29 @@ static void setup_relay_server(struct relay_server *rs, ioa_engine_handle e, int
     ioa_engine_set_rtcp_map(rs->ioa_eng, turn_params.listener.rtcpmap);
   }
 
-  bufferevent_pair_new(rs->event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
-  rs->in_buf = pair[0];
-  rs->out_buf = pair[1];
-  bufferevent_setcb(rs->in_buf, relay_receive_message, NULL, NULL, rs);
-  bufferevent_enable(rs->in_buf, EV_READ);
+  #ifndef USE_FSTACK
+    bufferevent_pair_new(rs->event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+    rs->in_buf = pair[0];
+    rs->out_buf = pair[1];
+    bufferevent_setcb(rs->in_buf, relay_receive_message, NULL, NULL, rs);
+    bufferevent_enable(rs->in_buf, EV_READ);
 
-  bufferevent_pair_new(rs->event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
-  rs->auth_in_buf = pair[0];
-  rs->auth_out_buf = pair[1];
-  bufferevent_setcb(rs->auth_in_buf, relay_receive_auth_message, NULL, NULL, rs);
-  bufferevent_enable(rs->auth_in_buf, EV_READ);
+    bufferevent_pair_new(rs->event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+    rs->auth_in_buf = pair[0];
+    rs->auth_out_buf = pair[1];
+    bufferevent_setcb(rs->auth_in_buf, relay_receive_auth_message, NULL, NULL, rs);
+    bufferevent_enable(rs->auth_in_buf, EV_READ);
+  #else
+    listener_fifo_t *lf = create_listener_fifo(relay_receive_message_from_fifo, rs);
+    register_listener_fifo(lf);
+    rs->in_buf = lf;
+    rs->out_buf = lf;
+
+    lf = create_listener_fifo(relay_receive_auth_message_from_fifo, rs);
+    register_listener_fifo(lf);
+    rs->auth_in_buf = lf;
+    rs->auth_out_buf = lf;
+  #endif
 
   init_turn_server(
       &(rs->server), rs->id, turn_params.verbose, rs->ioa_eng, turn_params.ct, turn_params.fingerprint,
@@ -1716,7 +1967,9 @@ static void setup_general_relay_servers(void) {
   size_t i = 0;
 
   for (i = 0; i < get_real_general_relay_servers_number(); i++) {
-
+    #ifdef USE_FSTACK
+      turn_params.general_relay_servers_number = 0;
+    #endif
     if (turn_params.general_relay_servers_number == 0) {
       #ifdef USE_FSTACK
         TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call //ff_thread_init in netengine.c - 1717\n");
@@ -1778,16 +2031,26 @@ static void *run_auth_server_thread(void *arg) {
     memset(as, 0, sizeof(struct auth_server));
 
     as->id = id;
-
+    #ifndef USE_FSTACK
     as->event_base = turn_event_base_new();
+    #else
+    as->event_base = my_event_base_new();
+    #endif
 
     struct bufferevent *pair[2];
 
-    bufferevent_pair_new(as->event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
-    as->in_buf = pair[0];
-    as->out_buf = pair[1];
-    bufferevent_setcb(as->in_buf, auth_server_receive_message, NULL, NULL, as);
-    bufferevent_enable(as->in_buf, EV_READ);
+    #ifndef USE_FSTACK
+      bufferevent_pair_new(as->event_base, TURN_BUFFEREVENTS_OPTIONS, pair);
+      as->in_buf = pair[0];
+      as->out_buf = pair[1];
+      bufferevent_setcb(as->in_buf, auth_server_receive_message, NULL, NULL, as);
+      bufferevent_enable(as->in_buf, EV_READ);
+    #else
+      listener_fifo_t *lf = create_listener_fifo(auth_server_receive_message_from_fifo, as);
+      register_listener_fifo(lf);
+      as->in_buf = lf;
+      as->out_buf = lf;
+    #endif
 
 #if !defined(TURN_NO_HIREDIS)
     as->rch = get_redis_async_connection(as->event_base, &turn_params.redis_statsdb, 1);
@@ -1806,7 +2069,19 @@ static void *run_auth_server_thread(void *arg) {
 
   return arg;
 }
-
+void setup_auth_servers_fstack(void) {
+    for (authserver_id sn = 0; sn < authserver_number; ++sn) {
+        authserver[sn].id = sn;
+        authserver[sn].event_base = my_event_base_new();
+        listener_fifo_t *lf = create_listener_fifo(auth_server_receive_message_from_fifo, &authserver[sn]);
+        register_listener_fifo(lf);
+        authserver[sn].in_buf = lf;
+        authserver[sn].out_buf = lf;
+        // Si usas Redis, inicializa aquí también
+        // authserver[sn].rch = get_redis_async_connection(...);
+    }
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Total auth servers (F-Stack): %d\n", authserver_number);
+}
 static void setup_auth_server(struct auth_server *as) {
   pthread_attr_t attr;
   if (pthread_attr_init(&attr) || pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED) ||
@@ -1829,18 +2104,37 @@ static void *run_admin_server_thread(void *arg) {
 
   return arg;
 }
+static void run_admin_server_fstack() {
+  ignore_sigpipe();
+
+  setup_admin_thread();
+
+  //barrier_wait();
+
+  while (adminserver.event_base) {
+    run_events(adminserver.event_base, NULL);
+  }
+}
 
 static void setup_admin_server(void) {
   memset(&adminserver, 0, sizeof(struct admin_server));
   adminserver.listen_fd = -1;
   adminserver.verbose = turn_params.verbose;
 
-  if (pthread_create(&(adminserver.thr), NULL, run_admin_server_thread, &adminserver)) {
-    perror("Cannot create cli thread\n");
-    exit(-1);
-  }
+  #ifndef USE_FSTACK
+    if (pthread_create(&(adminserver.thr), NULL, run_admin_server_thread, &adminserver)) {
+      perror("Cannot create cli thread\n");
+      exit(-1);
+    }
 
-  pthread_detach(adminserver.thr);
+    pthread_detach(adminserver.thr);
+  #else
+    adminserver.event_base = my_event_base_new();
+
+    setup_admin_thread();
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-stack-j: Admin auth server registrado en event_base principal");
+    //run_admin_server_fstack();
+  #endif
 }
 
 void setup_server(void) {
@@ -1909,17 +2203,23 @@ void setup_server(void) {
   }
 
   {
+    #ifndef USE_FSTACK
     authserver_id sn = 0;
     for (sn = 0; sn < authserver_number; ++sn) {
       authserver[sn].id = sn;
       setup_auth_server(&(authserver[sn]));
     }
+    #else //habría que implementar código friendly con f-stack
+      setup_auth_servers_fstack();
+      //TURN_LOG_FUNC(TURN_LOG_LEVEL_WARNING, "Coturn sin autenticación, debido a f-stack");
+    #endif
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Total auth threads: %d\n", authserver_number);
   }
 
   setup_admin_server();
-
-  barrier_wait();
+  #ifndef USE_FSTACK
+    barrier_wait();
+  #endif
 }
 
 void init_listener(void) { memset(&turn_params.listener, 0, sizeof(struct listener_server)); }

@@ -68,7 +68,11 @@ struct dtls_listener_relay_server_info {
   ioa_engine_handle e;
   turn_turnserver *ts;
   int verbose;
-  struct event *udp_listen_ev;
+  #ifndef USE_FSTACK
+    struct event *udp_listen_ev;
+  #else
+    struct MyEvent *udp_listen_ev;
+  #endif
   ioa_socket_handle udp_listen_s;
   ur_addr_map *children_ss; /* map of socket children on remote addr */
   struct message_to_relay sm;
@@ -309,6 +313,7 @@ static ioa_socket_handle dtls_server_input_handler(dtls_listener_relay_server_ty
 
 static int handle_udp_packet(dtls_listener_relay_server_type *server, struct message_to_relay *sm,
                              ioa_engine_handle ioa_eng, turn_turnserver *ts) {
+  printf("LOG: Entrando en handle_udp_packet\n");
   int verbose = ioa_eng->verbose;
   ioa_socket_handle s = sm->m.sm.s;
 
@@ -454,6 +459,8 @@ static int handle_udp_packet(dtls_listener_relay_server_type *server, struct mes
       s->e = ioa_eng;
       add_socket_to_map(s, amap);
       if (open_client_connection_session(ts, &(sm->m.sm)) < 0) {
+        printf("Failed to open client connection session.\n");
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Cannot open client connection session\n", __FUNCTION__);
         return -1;
       }
     }
@@ -464,8 +471,8 @@ static int handle_udp_packet(dtls_listener_relay_server_type *server, struct mes
 
 static int create_new_connected_udp_socket(dtls_listener_relay_server_type *server, ioa_socket_handle s) {
 
-
-  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in dtls_listener - 468");
+  printf("LOG: Entrando en create_new_connected_udp_socket\n");
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in dtls_listener - 468\n");
   evutil_socket_t udp_fd = my_socket(s->local_addr.ss.sa_family, CLIENT_DGRAM_SOCKET_TYPE, CLIENT_DGRAM_SOCKET_PROTOCOL);
   if (udp_fd < 0) {
     perror("socket");
@@ -587,6 +594,7 @@ static int create_new_connected_udp_socket(dtls_listener_relay_server_type *serv
 
 static void udp_server_input_handler(evutil_socket_t fd, short what, void *arg) {
 
+  printf("LOG UDP: Entrando en udp_server_input_handler\n");
   if (!arg) {
     return;
   }
@@ -788,11 +796,16 @@ static int create_server_socket(dtls_listener_relay_server_type *server, int rep
         exit(-1);
       }
     }
-
+    #ifndef USE_FSTACK
     server->udp_listen_ev =
         event_new(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
 
     event_add(server->udp_listen_ev, NULL);
+    #else
+      printf("DEBUG: Calling my_event_new in dtls_listener - line: %d, fd: %d\n", __LINE__, udp_listen_fd);
+      server->udp_listen_ev = my_event_new(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
+      my_event_add(server->udp_listen_ev,NULL);
+    #endif
   }
 
   if (report_creation) {
@@ -858,11 +871,17 @@ static int reopen_server_socket(dtls_listener_relay_server_type *server, evutil_
       TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Cannot bind listener socket to addr %s\n", saddr);
       return -1;
     }
-
+    #ifndef USE_FSTACK
     server->udp_listen_ev =
-        event_new(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
+         event_new(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
 
-    event_add(server->udp_listen_ev, NULL);
+     event_add(server->udp_listen_ev, NULL);
+    #else
+      printf("DEBUG: Calling my_event_new in dtls_listener - line: %d, fd: %d\n", __LINE__, udp_listen_fd);
+      server->udp_listen_ev = my_event_new(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
+      my_event_add(server->udp_listen_ev,NULL);
+    #endif
+
   }
 
   if (!turn_params.no_udp && !turn_params.no_dtls) {

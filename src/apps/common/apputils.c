@@ -88,12 +88,17 @@ int IS_TURN_SERVER = 0;
 int socket_set_nonblocking(evutil_socket_t fd) {
 #if defined(WINDOWS)
   unsigned long nonblocking = 1;
-  ioctlsocket(fd, FIONBIO, (unsigned long *)&nonblocking);
+  my_ioctl(fd, FIONBIO, (unsigned long *)&nonblocking);
 #else
+#ifndef USE_FSTACK
   if (fcntl(fd, F_SETFL, O_NONBLOCK) == -1) {
     perror("O_NONBLOCK");
     return -1;
   }
+#else
+  unsigned long nonblocking = 1;
+  my_ioctl(fd, FIONBIO, (unsigned long *)&nonblocking);
+#endif
 #endif
   return 0;
 }
@@ -103,9 +108,9 @@ void read_spare_buffer(evutil_socket_t fd) {
     static char buffer[65536];
 #if defined(WINDOWS)
     // TODO: add set no-block? by Kang Lin <kl222@126.com>
-    recv(fd, buffer, sizeof(buffer), 0);
+    my_recv(fd, buffer, sizeof(buffer), 0);
 #else
-    recv(fd, buffer, sizeof(buffer), MSG_DONTWAIT);
+    my_recv(fd, buffer, sizeof(buffer), MSG_DONTWAIT);
 #endif
   }
 }
@@ -203,6 +208,7 @@ int socket_set_reusable(evutil_socket_t fd, int flag, SOCKET_TYPE st) {
 #endif
 
 #if defined(SO_REUSEADDR)
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "f-stack-j: Reusando dirección\n");
     if (use_reuseaddr) {
       int on = flag;
       int ret = my_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const void *)&on, (socklen_t)sizeof(on));
@@ -227,6 +233,8 @@ int socket_set_reusable(evutil_socket_t fd, int flag, SOCKET_TYPE st) {
 #endif
 
 #if defined(SO_REUSEPORT)
+
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "f-stack-j: Reusando puerto\n");
     if (use_reuseaddr) {
       int on = flag;
       my_setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (const void *)&on, (socklen_t)sizeof(on));
@@ -276,7 +284,7 @@ int addr_connect(evutil_socket_t fd, const ioa_addr *addr, int *out_errno) {
         err = my_connect(fd, (const struct sockaddr *)addr, sizeof(struct sockaddr_in));
       } else if (addr->ss.sa_family == AF_INET6) {
         err = my_connect(fd, (const struct sockaddr *)addr, sizeof(struct sockaddr_in6));
-      } else {
+      } else {  
         return -1;
       }
     } while (err < 0 && socket_eintr());

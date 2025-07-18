@@ -43,6 +43,12 @@
 #include <string.h>
 #include <time.h>
 
+//librerias jose
+
+#include <rte_ring.h>
+
+//librerias jose
+
 #include <locale.h>
 
 #include <pthread.h>
@@ -154,14 +160,19 @@ struct message_to_listener {
 struct listener_server {
   rtcp_map *rtcpmap;
   turnipports *tp;
-#ifndef #USE_FSTACK
+#ifndef USE_FSTACK
   struct event_base *event_base;
 #else
   struct MyEventBase *event_base;
 #endif
   ioa_engine_handle ioa_eng;
+  #ifndef USE_FSTACK
   struct bufferevent *in_buf;
   struct bufferevent *out_buf;
+  #else
+  struct listener_fifo_t *in_buf;
+  struct listener_fifo_t *out_buf;
+ #endif
   char **addrs;
   ioa_addr **encaddrs;
   size_t addrs_number;
@@ -210,7 +221,11 @@ typedef struct _turn_params_ {
   bool no_tls;
   bool no_dtls;
 
-  struct event *tls_ctx_update_ev;
+  #ifndef USE_FSTACK
+    struct event *tls_ctx_update_ev;
+  #else
+    struct MyEvent *tls_ctx_update_ev;
+  #endif
   TURN_MUTEX_DECLARE(tls_mutex)
 
   //////////////// Common params ////////////////////

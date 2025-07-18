@@ -63,9 +63,11 @@ static uint64_t tot_send_bytes = 0;
 static uint32_t tot_recv_messages = 0;
 static uint64_t tot_recv_bytes = 0;
 static uint64_t tot_send_dropped = 0;
-
-struct event_base *client_event_base = NULL;
-
+#ifndef USE_FSTACK
+  struct event_base *client_event_base = NULL;
+#else
+  struct MyEventBase *client_event_base = NULL;
+#endif
 static int client_write(app_ur_session *elem);
 static int client_shutdown(app_ur_session *elem);
 
@@ -290,7 +292,7 @@ int send_buffer(app_ur_conn_info *clnet_info, stun_buffer *message, bool data_co
 
     while (left > 0) {
       do {
-        rc = send(fd, buffer, left, 0);
+        rc = my_send(fd, buffer, left, 0);
       } while (rc <= 0 && (socket_eintr() || socket_enobufs() || socket_eagain()));
       if (rc > 0) {
         left -= rc;
@@ -422,7 +424,7 @@ recv_again:
     /* Plain UDP */
 
     do {
-      rc = recv(fd, message->buf, sizeof(message->buf) - 1, 0);
+      rc = my_recv(fd, message->buf, sizeof(message->buf) - 1, 0);
     } while (rc < 0 && (socket_eintr() || (socket_eagain() && sync)));
 
     if (rc < 0) {
@@ -575,7 +577,7 @@ recv_again:
     /* Plain TCP */
 
     do {
-      rc = recv(fd, message->buf, sizeof(message->buf) - 1, MSG_PEEK);
+      rc = my_recv(fd, message->buf, sizeof(message->buf) - 1, MSG_PEEK); //MSG_PEEK no funciona en f_stack
     } while (rc < 0 && (socket_eintr() || (socket_eagain() && sync)));
 
     if (rc > 0) {
@@ -598,11 +600,15 @@ recv_again:
       if (mlen > 0) {
 
         int rcr = 0;
-        int rsf = 0;
+        #ifndef USE_FSTACK
+          int rsf = 0;
+        #else
+          int rsf = rc;
+        #endif
         int cycle = 0;
         while (rsf < mlen && cycle++ < 128) {
           do {
-            rcr = recv(fd, message->buf + rsf, (size_t)mlen - (size_t)rsf, 0);
+            rcr = my_recv(fd, message->buf + rsf, (size_t)mlen - (size_t)rsf, 0);
           } while (rcr < 0 && (socket_eintr() || (socket_eagain() && sync)));
 
           if (rcr > 0) {
@@ -1011,10 +1017,14 @@ static void run_events(int short_burst) {
     timeout.tv_sec = 0;
     timeout.tv_usec = 100000;
   }
-
+  #ifndef USE_FSTACK
   event_base_loopexit(client_event_base, &timeout);
 
   event_base_dispatch(client_event_base);
+  #else
+    int tiempo_ms = timeout.tv_sec * 1000 + timeout.tv_usec / 1000;
+    my_event_loop(client_event_base,tiempo_ms);
+  #endif
 }
 
 ////////////////////// main method /////////////////
@@ -1059,17 +1069,30 @@ static int start_client(const char *remote_address, int port, const unsigned cha
   if (!no_rtcp) {
     socket_set_nonblocking(clnet_info_rtcp->fd);
   }
+  #ifndef USE_FSTACK
+    struct event *ev = event_new(client_event_base, clnet_info->fd, EV_READ | EV_PERSIST, client_input_handler, ss);
 
-  struct event *ev = event_new(client_event_base, clnet_info->fd, EV_READ | EV_PERSIST, client_input_handler, ss);
+    event_add(ev, NULL);
+    struct event *ev_rtcp = NULL;
+  #else
+    struct MyEvent *ev = my_event_new(client_event_base, clnet_info->fd, EV_READ | EV_PERSIST, client_input_handler,ss);
+    my_event_add(ev,NULL);
+    struct MyEvent *ev_rtcp = NULL;
+  #endif
 
-  event_add(ev, NULL);
 
-  struct event *ev_rtcp = NULL;
+ 
 
   if (!no_rtcp) {
-    ev_rtcp = event_new(client_event_base, clnet_info_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler, ss_rtcp);
+    #ifndef USE_FSTACK
+      ev_rtcp = event_new(client_event_base, clnet_info_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler, ss_rtcp);
 
-    event_add(ev_rtcp, NULL);
+      event_add(ev_rtcp, NULL);
+    #else
+      struct MyEvent *ev_rtcp = my_event_new(client_event_base, clnet_info_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler,ss_rtcp);
+      my_event_add(ev_rtcp,NULL);
+    #endif
+
   }
 
   ss->state = UR_STATE_READY;
@@ -1166,28 +1189,54 @@ static int start_c2c(const char *remote_address, int port, const unsigned char *
     socket_set_nonblocking(clnet_info2_rtcp->fd);
   }
 
-  struct event *ev1 = event_new(client_event_base, clnet_info1->fd, EV_READ | EV_PERSIST, client_input_handler, ss1);
+  #ifndef USE_FSTACK
+    struct event *ev1 = event_new(client_event_base, clnet_info1->fd, EV_READ | EV_PERSIST, client_input_handler, ss1);
 
-  event_add(ev1, NULL);
+    event_add(ev1, NULL);
 
-  struct event *ev1_rtcp = NULL;
+    struct event *ev1_rtcp = NULL;
+  #else
+    struct MyEvent *ev1 = my_event_new(client_event_base, clnet_info1->fd, EV_READ | EV_PERSIST, client_input_handler,ss1);
+    my_event_add(ev1,NULL);
+    struct MyEvent *ev1_rtcp = NULL;
+  #endif
 
   if (!no_rtcp) {
-    ev1_rtcp = event_new(client_event_base, clnet_info1_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler, ss1_rtcp);
+    #ifndef USE_FSTACK
+      ev1_rtcp = event_new(client_event_base, clnet_info1_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler, ss1_rtcp);
 
-    event_add(ev1_rtcp, NULL);
+      event_add(ev1_rtcp, NULL);
+    #else
+      ev1_rtcp = my_event_new(client_event_base, clnet_info1_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler,ss1_rtcp);
+      my_event_add(ev1_rtcp,NULL);
+    #endif
   }
+    #ifndef USE_FSTACK
+      struct event *ev2 = event_new(client_event_base, clnet_info2->fd, EV_READ | EV_PERSIST, client_input_handler, ss2);
 
-  struct event *ev2 = event_new(client_event_base, clnet_info2->fd, EV_READ | EV_PERSIST, client_input_handler, ss2);
+      event_add(ev2, NULL);
 
-  event_add(ev2, NULL);
+      struct event *ev2_rtcp = NULL;
+    #else
+      struct MyEvent *ev2= my_event_new(client_event_base, clnet_info2->fd, EV_READ | EV_PERSIST, client_input_handler,ss2);
+      my_event_add(ev2,NULL);
+      
+      struct MyEvent *ev2_rtcp = NULL;
+    #endif
 
-  struct event *ev2_rtcp = NULL;
+
+
 
   if (!no_rtcp) {
-    ev2_rtcp = event_new(client_event_base, clnet_info2_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler, ss2_rtcp);
+    #ifndef USE_FSTACK
+      ev2_rtcp = event_new(client_event_base, clnet_info2_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler, ss2_rtcp);
 
-    event_add(ev2_rtcp, NULL);
+      event_add(ev2_rtcp, NULL);
+    #else
+      ev2_rtcp = my_event_new(client_event_base, clnet_info2_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler,ss2_rtcp);
+      my_event_add(ev2_rtcp,NULL);
+    #endif
+
   }
 
   ss1->state = UR_STATE_READY;
@@ -1425,8 +1474,12 @@ void start_mclient(const char *remote_address, int port, const unsigned char *if
   uint32_t stime = current_time;
 
   memset(buffer_to_send, 7, clmessage_length);
+  #ifndef USE_FSTACK
+    client_event_base = turn_event_base_new();
+  #else
+    client_event_base = my_event_base_new();
+  #endif
 
-  client_event_base = turn_event_base_new();
 
   int tot_clients = 0;
 
@@ -1483,14 +1536,18 @@ void start_mclient(const char *remote_address, int port, const unsigned char *if
   total_clients = tot_clients;
 
   __turn_getMSTime();
+  #ifndef USE_FSTACK
+    struct event *ev = event_new(client_event_base, -1, EV_TIMEOUT | EV_PERSIST, timer_handler, NULL);
+    struct timeval tv;
 
-  struct event *ev = event_new(client_event_base, -1, EV_TIMEOUT | EV_PERSIST, timer_handler, NULL);
-  struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 1000;
 
-  tv.tv_sec = 0;
-  tv.tv_usec = 1000;
+    evtimer_add(ev, &tv);
+  #else
+    struct MyEvent *ev = my_event_new(client_event_base, -1, EV_TIMEOUT | EV_PERSIST, timer_handler,NULL);
+  #endif
 
-  evtimer_add(ev, &tv);
 
   for (int i = 0; i < total_clients; i++) {
 
@@ -1589,7 +1646,11 @@ void start_mclient(const char *remote_address, int port, const unsigned char *if
                 (unsigned long)tot_send_bytes, (unsigned long)tot_recv_bytes);
 
   if (client_event_base) {
+    #ifndef USE_FSTACK
     event_base_free(client_event_base);
+    #else
+    my_event_base_free(client_event_base);
+    #endif
   }
 
   if (tot_send_messages < tot_recv_messages) {

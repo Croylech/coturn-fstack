@@ -34,6 +34,15 @@
 
 project(turncommon)
 
+include_directories(
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/apps/relay
+    ${CMAKE_SOURCE_DIR}/src/server
+    ${CMAKE_SOURCE_DIR}/src/client
+    ${CMAKE_SOURCE_DIR}/src/apps/common
+)
+
+
 set(SOURCE_FILES
     apputils.c
     ns_turn_utils.c

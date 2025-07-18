@@ -401,7 +401,7 @@ extern void telnet_free(telnet_t *telnet);
  *
  * Passes one or more bytes to the telnet state tracker for
  * protocol parsing.  The byte buffer is most often going to be
- * the buffer that recv() was called for while handling the
+ * the buffer that my_recv() was called for while handling the
  * connection.
  *
  * \param telnet Telnet state tracker object.

@@ -180,7 +180,7 @@ static int stunclient_receive(int sockfd, ioa_addr *local_addr, ioa_addr *reflex
     my_setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(struct timeval));
 
     do {
-      len = recv(sockfd, buf.buf, to_recv - recvd, 0);
+      len = my_recv(sockfd, buf.buf, to_recv - recvd, 0);
       if (len > 0) {
         recvd += len;
         break;
@@ -417,7 +417,7 @@ static int stunclient_receive(stun_buffer *buf, int sockfd, ioa_addr *local_addr
     my_setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(struct timeval));
 
     do {
-      len = recv(sockfd, buf->buf, to_recv - recvd, 0);
+      len = my_recv(sockfd, buf->buf, to_recv - recvd, 0);
       if (len > 0) {
         recvd += len;
         break;

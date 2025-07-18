@@ -44,6 +44,11 @@
 
 #include "prom_server.h"
 
+//includes jose
+#include <sys/timerfd.h>
+#include <fcntl.h>
+#include "wrappers.h"
+
 #if TLS_SUPPORTED
 #include <event2/bufferevent_ssl.h>
 #endif
@@ -103,6 +108,9 @@ static void socket_input_handler(evutil_socket_t fd, short what, void *arg);
 static void socket_output_handler_bev(struct bufferevent *bev, void *arg);
 static void socket_input_handler_bev(struct bufferevent *bev, void *arg);
 static void eventcb_bev(struct bufferevent *bev, short events, void *arg);
+void my_combined_handler(int fd, short what, void *arg);
+void socket_output_handler_fstack(int fd, void *arg);
+void socket_input_handler_fstack(int fd, void *arg);
 
 static int send_ssl_backlog_buffers(ioa_socket_handle s);
 
@@ -373,7 +381,7 @@ ioa_engine_handle create_ioa_engine(super_memory_t *sm
                                     ,
                                     redis_stats_db_t *redis_stats_db
 #endif
-) {
+){
   static int capabilities_checked = 0;
 
   if (!capabilities_checked) {
@@ -414,11 +422,11 @@ ioa_engine_handle create_ioa_engine(super_memory_t *sm
       e->event_base = eb;
       e->deallocate_eb = 0;
     } else {
-#ifndef USE_FSTACK
+      #ifndef USE_FSTACK
       e->event_base = turn_event_base_new();
-#else
+      #else
       e->event_base = my_event_base_new();
-#endif
+      #endif
       e->deallocate_eb = 1;
     }
 
@@ -428,20 +436,22 @@ ioa_engine_handle create_ioa_engine(super_memory_t *sm
 
     {
       int t;
-      for (t = 0; t < PREDEF_TIMERS_NUM; ++t) {
-        struct timeval duration;
-        duration.tv_sec = predef_timer_intervals[t];
-        duration.tv_usec = 0;
-        const struct timeval *ptv = event_base_init_common_timeout(e->event_base, &duration);
-        if (!ptv) {
-          TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "FATAL: cannot create preferable timeval for %d secs (%d number)\n",
-                        predef_timer_intervals[t], t);
-          exit(-1);
-        } else {
-          memcpy(&(e->predef_timers[t]), ptv, sizeof(struct timeval));
-          e->predef_timer_intervals[t] = predef_timer_intervals[t];
+      #ifndef USE_FSTACK
+        for (int t = 0; t < PREDEF_TIMERS_NUM; ++t) {
+          struct timeval duration;
+          duration.tv_sec = predef_timer_intervals[t];
+          duration.tv_usec = 0;
+          const struct timeval *ptv = event_base_init_common_timeout(e->event_base, &duration);
+          if (!ptv) {
+            TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "FATAL: cannot create timeval for %d secs (%d)\n",
+                          predef_timer_intervals[t], t);
+            exit(-1);
+          } else {
+            memcpy(&(e->predef_timers[t]), ptv, sizeof(struct timeval));
+            e->predef_timer_intervals[t] = predef_timer_intervals[t];
+          }
         }
-      }
+      #endif
     }
 
     if (relay_ifname) {
@@ -578,20 +588,60 @@ static void timer_event_handler(evutil_socket_t fd, short what, void *arg) {
   cb(e, ctx);
 }
 
+static void dpdk_timer_adapter_cb(struct rte_timer *tim, void *arg) { //jose
+  timer_event *te = (timer_event *)arg;
+  if (te && te->cb) {
+    te->cb(te->e, te->ctx);
+  }
+}
+
 ioa_timer_handle set_ioa_timer(ioa_engine_handle e, int secs, int ms, ioa_timer_event_handler cb, void *ctx,
                                int persist, const char *txt) {
   ioa_timer_handle ret = NULL;
 
-  if (e && cb && secs > 0) {
+#if defined(USE_FSTACK)
+  if (e && cb && secs > 0 && ms == 0) {
+    // Usar DPDK timer (no hay soporte de microsegundos con rte_timer)
+    timer_event *te = (timer_event *)malloc(sizeof(timer_event));
+    if (!te) return NULL;
 
+    te->ctx = ctx;
+    te->e = e;
+    te->cb = cb;
+    te->txt = strdup(txt);
+
+    rte_timer_init(&te->dpdk_timer);  
+
+    uint64_t hz = rte_get_timer_hz();
+    uint64_t ticks = secs * hz;
+
+    int result = rte_timer_reset(
+      &te->dpdk_timer,
+      ticks,
+      persist ? PERIODICAL : SINGLE,
+      rte_lcore_id(),
+      dpdk_timer_adapter_cb,  // <- Wrapper que adapta los parámetros
+      te                      // <- Pasas el struct entero
+    );
+
+    if (result != 0) {
+      free(te);
+      return NULL;
+    }
+
+    ret = te;
+  }
+
+#else
+  if (e && cb && secs > 0) {
     timer_event *te = (timer_event *)malloc(sizeof(timer_event));
     int flags = EV_TIMEOUT;
     if (persist) {
       flags |= EV_PERSIST;
     }
+
     struct event *ev = event_new(e->event_base, -1, flags, timer_event_handler, te);
     struct timeval tv;
-
     tv.tv_sec = secs;
 
     te->ctx = ctx;
@@ -603,8 +653,7 @@ ioa_timer_handle set_ioa_timer(ioa_engine_handle e, int secs, int ms, ioa_timer_
     if (!ms) {
       tv.tv_usec = 0;
       int found = 0;
-      int t;
-      for (t = 0; t < PREDEF_TIMERS_NUM; ++t) {
+      for (int t = 0; t < PREDEF_TIMERS_NUM; ++t) {
         if (e->predef_timer_intervals[t] == secs) {
           evtimer_add(ev, &(e->predef_timers[t]));
           found = 1;
@@ -621,6 +670,7 @@ ioa_timer_handle set_ioa_timer(ioa_engine_handle e, int secs, int ms, ioa_timer_
 
     ret = te;
   }
+#endif
 
   return ret;
 }
@@ -628,7 +678,11 @@ ioa_timer_handle set_ioa_timer(ioa_engine_handle e, int secs, int ms, ioa_timer_
 void stop_ioa_timer(ioa_timer_handle th) {
   if (th) {
     timer_event *te = (timer_event *)th;
+#ifdef USE_FSTACK
+    rte_timer_stop(&te->dpdk_timer);
+#else
     EVENT_DEL(te->ev);
+#endif
   }
 }
 
@@ -893,6 +947,7 @@ int set_socket_options(ioa_socket_handle s) {
     return 0;
   }
 
+#ifndef USE_FSTACK
   set_socket_options_fd(s->fd, s->st, s->family);
 
   s->default_ttl = get_raw_socket_ttl(s->fd, s->family);
@@ -900,6 +955,13 @@ int set_socket_options(ioa_socket_handle s) {
 
   s->default_tos = get_raw_socket_tos(s->fd, s->family);
   s->current_tos = s->default_tos;
+#else
+  set_socket_options_fd(s->fd, s->st, s->family);  // solo lo permitido
+  s->default_ttl = 64;  // valor estándar razonable
+  s->current_ttl = 64;
+  s->default_tos = 0;
+  s->current_tos = 0;
+#endif
 
   return 0;
 }
@@ -917,6 +979,7 @@ ioa_socket_handle create_unbound_relay_ioa_socket(ioa_engine_handle e, int famil
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call myscoket in ns_iolib_engine_impl.c - 907");
     fd = my_socket(family, RELAY_DGRAM_SOCKET_TYPE, RELAY_DGRAM_SOCKET_PROTOCOL);
     if (fd < 0) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Cannot create UDP socket\n");
       perror("UDP socket");
       return NULL;
     }
@@ -1043,6 +1106,11 @@ int create_relay_ioa_sockets(ioa_engine_handle e, ioa_socket_handle client_s, in
             addr_set_port(&rtcp_local_addr, rtcp_port);
             turnipports_release(tp, transport, &rtcp_local_addr);
             return -1;
+          }else{ //DEBUG
+             TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "INFO: IPv4. Local relay addr: %s:%d fd=%d\n",
+    inet_ntoa(((struct sockaddr_in *)&((*rtp_s)->local_addr))->sin_addr),
+    ntohs(((struct sockaddr_in *)&((*rtp_s)->local_addr))->sin_port),
+    (*rtp_s)->fd);
           }
           sock_bind_to_device((*rtcp_s)->fd, (unsigned char *)e->relay_ifname);
 
@@ -1156,7 +1224,13 @@ int create_relay_ioa_sockets(ioa_engine_handle e, ioa_socket_handle client_s, in
 
 /* RFC 6062 ==>> */
 
-static void tcp_listener_input_handler(struct evconnlistener *l, evutil_socket_t fd, struct sockaddr *sa, int socklen,
+static void tcp_listener_input_handler(
+  #ifndef USE_FSTACK
+  struct evconnlistener *l,
+  #else
+  struct MyEvConnListener *l,
+  #endif
+   evutil_socket_t fd, struct sockaddr *sa, int socklen,
                                        void *arg) {
   UNUSED_ARG(l);
 
@@ -1189,7 +1263,11 @@ static int set_accept_cb(ioa_socket_handle s, accept_cb acb, void *arg) {
   }
 
   if (s->st == TCP_SOCKET) {
+    #ifndef USE_FSTACK
     s->list_ev = evconnlistener_new(s->e->event_base, tcp_listener_input_handler, s, LEV_OPT_REUSEABLE, 1024, s->fd);
+    #else
+    s->list_ev = my_evconnlistener_new(s->e->event_base, tcp_listener_input_handler, s, LEV_OPT_REUSEABLE, 1024, s->fd);
+    #endif
     if (!(s->list_ev)) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: cannot start TCP listener\n", __FUNCTION__);
       return -1;
@@ -1200,31 +1278,72 @@ static int set_accept_cb(ioa_socket_handle s, accept_cb acb, void *arg) {
   return 0;
 }
 
-static void connect_eventcb(struct bufferevent *bev, short events, void *ptr) {
+static void connect_eventcb(
+#ifndef USE_FSTACK
+  struct bufferevent *bev,
+  short events,
+#else
+  int fd,
+  short events,
+#endif
+  void *ptr)
+{
+  ioa_socket_handle ret = (ioa_socket_handle)ptr;
+
+  if (!ret)
+    return;
+
+  connect_cb cb = ret->conn_cb;
+  void *arg = ret->conn_arg;
+
+#ifndef USE_FSTACK
   UNUSED_ARG(bev);
 
-  ioa_socket_handle ret = (ioa_socket_handle)ptr;
-  if (ret) {
-    connect_cb cb = ret->conn_cb;
-    void *arg = ret->conn_arg;
-    if (events & BEV_EVENT_CONNECTED) {
-      ret->conn_cb = NULL;
-      ret->conn_arg = NULL;
-      BUFFEREVENT_FREE(ret->conn_bev);
+  if (events & BEV_EVENT_CONNECTED) {
+    ret->connected = 1;
+    BUFFEREVENT_FREE(ret->conn_bev);
+    ret->conn_cb = NULL;
+    ret->conn_arg = NULL;
+    if (cb) {
+      cb(1, arg);
+    }
+
+  } else if (events & BEV_EVENT_ERROR) {
+    BUFFEREVENT_FREE(ret->conn_bev);
+    ret->conn_cb = NULL;
+    ret->conn_arg = NULL;
+    if (cb) {
+      cb(0, arg);
+    }
+  }
+
+#else
+  UNUSED_ARG(fd);
+
+  int err = 0;
+  socklen_t len = sizeof(err);
+  if (my_getsockopt(ret->fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0) {
+    err = errno;
+  }
+
+  if (events & EV_WRITE) {
+    my_event_del(ret->conn_bev);  // desregistrar el evento
+    ret->conn_bev = NULL;
+    ret->conn_cb = NULL;
+    ret->conn_arg = NULL;
+
+    if (err == 0) {
       ret->connected = 1;
       if (cb) {
-        cb(1, arg);
+        cb(1, arg);  // éxito
       }
-    } else if (events & BEV_EVENT_ERROR) {
-      /* An error occured while connecting. */
-      ret->conn_cb = NULL;
-      ret->conn_arg = NULL;
-      BUFFEREVENT_FREE(ret->conn_bev);
+    } else {
       if (cb) {
-        cb(0, arg);
+        cb(0, arg);  // error
       }
     }
   }
+#endif
 }
 
 ioa_socket_handle ioa_create_connecting_tcp_relay_socket(ioa_socket_handle s, ioa_addr *peer_addr, connect_cb cb,
@@ -1261,21 +1380,56 @@ ioa_socket_handle ioa_create_connecting_tcp_relay_socket(ioa_socket_handle s, io
 
   set_ioa_socket_session(ret, s->session);
 
-  BUFFEREVENT_FREE(ret->conn_bev);
 
-  ret->conn_bev = bufferevent_socket_new(ret->e->event_base, ret->fd, TURN_BUFFEREVENTS_OPTIONS);
-  bufferevent_setcb(ret->conn_bev, NULL, NULL, connect_eventcb, ret);
 
-  ret->conn_arg = arg;
-  ret->conn_cb = cb;
+  #ifndef USE_FSTACK
+    BUFFEREVENT_FREE(ret->conn_bev);
+    ret->conn_bev = bufferevent_socket_new(ret->e->event_base, ret->fd, TURN_BUFFEREVENTS_OPTIONS);
+    bufferevent_setcb(ret->conn_bev, NULL, NULL, connect_eventcb, ret);
+    if (bufferevent_socket_connect(ret->conn_bev, (struct sockaddr *)peer_addr, get_ioa_addr_len(peer_addr)) < 0) {
+      /* Error starting connection */
+      set_ioa_socket_session(ret, NULL);
+      IOA_CLOSE_SOCKET(ret);
+      ret = NULL;
+      goto ccs_end;
+    }
+  #else
+    if (ret->fd < 0) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Invalid socket fd for relay");
+      IOA_CLOSE_SOCKET(ret);
+      return NULL;
+    }
 
-  if (bufferevent_socket_connect(ret->conn_bev, (struct sockaddr *)peer_addr, get_ioa_addr_len(peer_addr)) < 0) {
-    /* Error starting connection */
-    set_ioa_socket_session(ret, NULL);
-    IOA_CLOSE_SOCKET(ret);
-    ret = NULL;
-    goto ccs_end;
-  }
+    set_socket_options(ret);
+    sock_bind_to_device(ret->fd, (unsigned char *)ret->e->relay_ifname);
+
+    if (bind_ioa_socket(ret, &new_local_addr, 1) < 0) {
+      perror("F-Stack bind failed");
+      IOA_CLOSE_SOCKET(ret);
+      return NULL;
+    }
+
+    if (my_connect(ret->fd, (struct sockaddr *)peer_addr, get_ioa_addr_len(peer_addr)) < 0) {
+      perror("F-Stack connect failed");
+      IOA_CLOSE_SOCKET(ret);
+      return NULL;
+    }
+
+    ret->conn_arg = arg;
+    ret->conn_cb = cb;
+
+    // Registrar el socket en el loop para EV_WRITE y detectar conexión completada
+    struct MyEvent *ev = my_event_new(ret->e->event_base, ret->fd, EV_WRITE, connect_eventcb, ret);
+    if (!ev) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Failed to allocate MyEvent for connect");
+      IOA_CLOSE_SOCKET(ret);
+      return NULL;
+    }
+    my_event_add(ev, NULL);
+    ret->conn_bev = ev;
+#endif
+
+
 
 ccs_end:
 
@@ -1442,11 +1596,17 @@ static void close_socket_net_data(ioa_socket_handle s) {
 
     EVENT_DEL(s->read_event);
     if (s->list_ev) {
+      #ifndef USE_FSTACK
       evconnlistener_free(s->list_ev);
+      #else
+      my_evconnlistener_free(s->list_ev);
+      #endif
       s->list_ev = NULL;
     }
-    BUFFEREVENT_FREE(s->conn_bev);
-    BUFFEREVENT_FREE(s->bev);
+    #ifndef USE_FSTACK
+      BUFFEREVENT_FREE(s->conn_bev);
+      BUFFEREVENT_FREE(s->bev);
+    #endif
 
     if (s->ssl) {
       if (!s->broken) {
@@ -1483,15 +1643,23 @@ void detach_socket_net_data(ioa_socket_handle s) {
     s->read_cb = NULL;
     s->read_ctx = NULL;
     if (s->list_ev) {
+      #ifndef USE_FSTACK
       evconnlistener_free(s->list_ev);
+      #else
+      my_evconnlistener_free(s->list_ev);
+      #endif
       s->list_ev = NULL;
     }
     s->acb = NULL;
     s->acbarg = NULL;
+    #ifndef USE_FSTACK
     BUFFEREVENT_FREE(s->conn_bev);
+    #endif
     s->conn_arg = NULL;
     s->conn_cb = NULL;
+    #ifndef USE_FSTACK
     BUFFEREVENT_FREE(s->bev);
+    #endif
   }
 }
 
@@ -1980,7 +2148,7 @@ static int socket_readerr(evutil_socket_t fd, ioa_addr *orig_addr) {
   do {
 
     do {
-      len = recvmsg(fd, &msg, flags);
+      len = my_recvmsg(fd, &msg, flags);
     } while (len < 0 && socket_eintr());
 
   } while ((len > 0) && (try_cycle++ < MAX_ERRORS_IN_UDP_BATCH));
@@ -2013,6 +2181,9 @@ int udp_recvfrom(evutil_socket_t fd, ioa_addr *orig_addr, const ioa_addr *like_a
 #if defined(_MSC_VER) || !defined(CMSG_SPACE)
   do {
     len = my_recvfrom(fd, buffer, buf_size, flags, (struct sockaddr *)orig_addr, (socklen_t *)&slen);
+    if(len > 0) {
+      printf("DEBUG: udp_recvfrom received %d bytes\n", len);
+    }
   } while (len < 0 && socket_eintr());
   if (len < 0 && errcode) {
     *errcode = (uint32_t)socket_errno();
@@ -2041,7 +2212,7 @@ try_again:
 #endif
 
   do {
-    len = recvmsg(fd, &msg, flags);
+    len = my_recvmsg(fd, &msg, flags);
   } while (len < 0 && socket_eintr());
 
 #if defined(MSG_ERRQUEUE)
@@ -2059,7 +2230,7 @@ try_again:
     udp_recvfrom(fd, orig_addr, like_addr, buffer, buf_size, ttl, tos, ecmsg, eflags, &errcode1);
     // try again...
     do {
-      len = recvmsg(fd, &msg, flags);
+      len = my_recvmsg(fd, &msg, flags);
     } while (len < 0 && socket_eintr());
   }
 #endif
@@ -2366,6 +2537,7 @@ static ssize_t socket_parse_proxy(ioa_socket_handle s, uint8_t *buf, size_t len)
 }
 
 static int socket_input_worker(ioa_socket_handle s) {
+  printf("DEBUG: socket_input_worker: fd=%d, st=%d, sat=%d\n", s ? s->fd : -1, s ? s->st : -1, s ? s->sat : -1);
   int len = 0;
   int ret = 0;
   size_t app_msg_len = 0;
@@ -2399,30 +2571,42 @@ static int socket_input_worker(ioa_socket_handle s) {
   if (s->connected) {
     addr_cpy(&remote_addr, &(s->remote_addr));
   }
-
   if (tcp_congestion_control && s->sub_session && s->bev) {
     if (s == s->sub_session->client_s && (s->sub_session->peer_s)) {
       if (!is_socket_writeable(s->sub_session->peer_s, STUN_BUFFER_SIZE, __FUNCTION__, 0)) {
-        if (bufferevent_enabled(s->bev, EV_READ)) {
-          bufferevent_disable(s->bev, EV_READ);
-        }
+        #ifndef USE_FSTACK
+          if (bufferevent_enabled(s->bev, EV_READ)) {
+            bufferevent_disable(s->bev, EV_READ);
+          }
+        #else
+        my_event_disable_read(s);
+
+        #endif
       }
     } else if (s == s->sub_session->peer_s && (s->sub_session->client_s)) {
       if (!is_socket_writeable(s->sub_session->client_s, STUN_BUFFER_SIZE, __FUNCTION__, 1)) {
-        if (bufferevent_enabled(s->bev, EV_READ)) {
-          bufferevent_disable(s->bev, EV_READ);
-        }
+        #ifndef USE_FSTACK
+          if (bufferevent_enabled(s->bev, EV_READ)) {
+            bufferevent_disable(s->bev, EV_READ);
+          }
+        #else
+          my_event_disable_read(s); 
+        #endif
       }
     }
   }
 
   if ((s->st == TLS_SOCKET) || (s->st == TLS_SCTP_SOCKET)) {
 #if TLS_SUPPORTED
+    #ifndef USE_FSTACK
     SSL *ctx = bufferevent_openssl_get_ssl(s->bev);
     if (!ctx || SSL_get_shutdown(ctx)) {
       s->tobeclosed = 1;
       return 0;
     }
+    #else
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Se esta usando TLS y no está adaptado a f-stack");
+    #endif
 #endif
   } else if (s->st == DTLS_SOCKET) {
     if (!(s->ssl) || SSL_get_shutdown(s->ssl)) {
@@ -2453,14 +2637,18 @@ static int socket_input_worker(ioa_socket_handle s) {
       if (s->e->tls_ctx) {
         set_socket_ssl(s, SSL_new(s->e->tls_ctx));
       }
+      #ifndef USE_FSTACK
+        if (s->ssl) {
+          s->bev = bufferevent_openssl_socket_new(s->e->event_base, s->fd, s->ssl, BUFFEREVENT_SSL_ACCEPTING,
+                                                  TURN_BUFFEREVENTS_OPTIONS);
+          bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
+          bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+          bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
+        }
 
-      if (s->ssl) {
-        s->bev = bufferevent_openssl_socket_new(s->e->event_base, s->fd, s->ssl, BUFFEREVENT_SSL_ACCEPTING,
-                                                TURN_BUFFEREVENTS_OPTIONS);
-        bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
-        bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
-        bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
-      }
+      #else
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Se esta usando TLS y no está adaptado a f-stack");
+      #endif
     } else
 #endif // TLS_SUPPORTED
     {
@@ -2469,11 +2657,18 @@ static int socket_input_worker(ioa_socket_handle s) {
         TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "!!!%s on socket: %p, st=%d, sat=%d: bev already exist\n", __FUNCTION__, s,
                       s->st, s->sat);
       }
-      s->bev = bufferevent_socket_new(s->e->event_base, s->fd, TURN_BUFFEREVENTS_OPTIONS);
-      bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
-      bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
-      bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
-    }
+      #ifndef USE_FSTACK
+        s->bev = bufferevent_socket_new(s->e->event_base, s->fd, TURN_BUFFEREVENTS_OPTIONS);
+        bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
+        bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+        bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
+      #else
+        // F-Stack: registra socket para eventos de lectura y escritura
+        struct MyEvent *ev = my_event_new(s->e->event_base, s->fd, EV_READ | EV_WRITE, my_combined_handler, s);
+        my_event_add(ev, NULL);
+        s->read_event = ev;  // guarda referencia si necesitas desactivar/activar luego
+      #endif
+      }
   } else if (s->st == TENTATIVE_SCTP_SOCKET) {
     EVENT_DEL(s->read_event);
 #if TLS_SUPPORTED
@@ -2491,25 +2686,37 @@ static int socket_input_worker(ioa_socket_handle s) {
       if (s->e->tls_ctx) {
         set_socket_ssl(s, SSL_new(s->e->tls_ctx));
       }
-      if (s->ssl) {
-        s->bev = bufferevent_openssl_socket_new(s->e->event_base, s->fd, s->ssl, BUFFEREVENT_SSL_ACCEPTING,
-                                                TURN_BUFFEREVENTS_OPTIONS);
-        bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
-        bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
-        bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
-      }
+      #ifndef USE_FSTACK
+        if (s->ssl) {
+          s->bev = bufferevent_openssl_socket_new(s->e->event_base, s->fd, s->ssl, BUFFEREVENT_SSL_ACCEPTING,
+                                                  TURN_BUFFEREVENTS_OPTIONS);
+          bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
+          bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
+          bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
+        }
+      #else
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Se esta usando TLS y no está adaptado a f-stack");
+      #endif
     } else
 #endif // TLS_SUPPORTED
     {
       s->st = SCTP_SOCKET;
+
       if (s->bev) {
-        TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "!!!%s on socket: %p, st=%d, sat=%d: bev already exist\n", __FUNCTION__, s,
-                      s->st, s->sat);
+        TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "!!!%s on socket: %p, st=%d, sat=%d: bev already exist\n",
+                      __FUNCTION__, s, s->st, s->sat);
       }
+
+    #ifndef USE_FSTACK
       s->bev = bufferevent_socket_new(s->e->event_base, s->fd, TURN_BUFFEREVENTS_OPTIONS);
       bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
       bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
       bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
+    #else
+      struct MyEvent *ev = my_event_new(s->e->event_base, s->fd, EV_READ | EV_WRITE, my_combined_handler, s);
+      my_event_add(ev, NULL);
+      s->read_event = ev;  // guardar referencia para habilitar/deshabilitar después si hace falta
+    #endif
     }
   }
 
@@ -2762,6 +2969,98 @@ void close_ioa_socket_after_processing_if_necessary(ioa_socket_handle s) {
     }
   }
 }
+
+void socket_input_handler_fstack(int fd, void *arg) {
+  ioa_socket_handle s = (ioa_socket_handle)arg;
+  printf("DEBUG: socket_input_handler_fstack: fd=%d, st=%d, sat=%d\n", fd, s ? s->st : -1, s ? s->sat : -1);
+  if (!s) {
+    read_spare_buffer(fd);  // opcional: tu lógica de limpiar datos
+    return;
+  }
+
+  if ((s->magic != SOCKET_MAGIC) || (s->done)) {
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "!!!%s on bad socket: %p, st=%d, sat=%d\n", __FUNCTION__, s, s->st, s->sat);
+    read_spare_buffer(fd);
+    return;
+  }
+
+  if (fd != s->fd) {
+    read_spare_buffer(fd);
+    return;
+  }
+
+  if (!ioa_socket_tobeclosed(s)) {
+    if (socket_input_worker(s) <= 0) {
+      // Si worker falla, marca para cerrar
+      s->tobeclosed = 1;
+    }
+  } else {
+    read_spare_buffer(fd);
+  }
+
+  if ((s->magic != SOCKET_MAGIC) || (s->done)) {
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "!!!%s (1) on socket: %p, st=%d, sat=%d\n", __FUNCTION__, s, s->st, s->sat);
+    return;
+  }
+
+  close_ioa_socket_after_processing_if_necessary(s);
+}
+
+
+void my_combined_handler(int fd, short what, void *arg) {
+  ioa_socket_handle s = (ioa_socket_handle)arg;
+  if (!s || s->tobeclosed) return;
+
+  if (what & EV_READ) {
+    socket_input_handler_fstack(fd, s);
+    printf("Socket %d read event handled.\n", fd);
+  }
+  if (what & EV_WRITE) {
+    socket_output_handler_fstack(fd, s);
+    printf("Socket %d write event handled.\n", fd);
+  }
+}
+
+void socket_output_handler_fstack(int fd, void *arg) {
+  UNUSED_ARG(fd);
+
+  if (!tcp_congestion_control) return;
+
+  if (!arg) return;
+
+  ioa_socket_handle s = (ioa_socket_handle)arg;
+
+  if (!s || (s->magic != SOCKET_MAGIC) || s->done)
+    return;
+
+  if (s->in_write)  // estamos escribiendo, espera a terminar
+    return;
+
+  if (s->tobeclosed) {
+    my_event_disable_read(s);  // desactiva lectura si el socket se cerrará
+    return;
+  }
+
+  if (s->sub_session) {
+    ioa_socket_handle peer = NULL;
+
+    if (s == s->sub_session->client_s && s->sub_session->peer_s) {
+      peer = s->sub_session->peer_s;
+    } else if (s == s->sub_session->peer_s && s->sub_session->client_s) {
+      peer = s->sub_session->client_s;
+    }
+
+    if (peer) {
+      if (!peer->read_enabled) {
+        if (is_socket_writeable(peer, STUN_BUFFER_SIZE, __FUNCTION__, (s == s->sub_session->peer_s) ? 3 : 4)) {
+          my_event_enable_read(peer);
+          socket_input_handler_fstack(peer->fd, peer);  // invoca handler del peer manualmente
+        }
+      }
+    }
+  }
+}
+
 
 static void socket_output_handler_bev(struct bufferevent *bev, void *arg) {
 
@@ -3182,7 +3481,7 @@ int udp_send(ioa_socket_handle s, const ioa_addr *dest_addr, const char *buffer,
 
     } else {
       do {
-        rc = send(fd, buffer, len, 0);
+        rc = my_send(fd, buffer, len, 0);
       } while (((rc < 0) && socket_eintr()) || ((rc < 0) && is_connreset() && (++cycle < TRIAL_EFFORTS_TO_SEND)));
     }
 
@@ -3395,8 +3694,24 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
               return -1;
             }
           } else {
-            s->read_event = event_new(s->e->event_base, s->fd, EV_READ | EV_PERSIST, socket_input_handler, s);
-            event_add(s->read_event, NULL);
+              #ifndef USE_FSTACK
+                s->read_event = event_new(s->e->event_base, s->fd, EV_READ | EV_PERSIST, socket_input_handler, s);
+                if (event_add(s->read_event, NULL)<0) {
+                  TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: event_add failed for socket %p\n", __FUNCTION__, s);
+                  return -1;
+                }else{
+                  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: event_add ok for socket %p\n", __FUNCTION__, s);
+                }
+              #else
+                s->read_event = my_event_new(s->e->event_base,s->fd,EV_READ | EV_PERSIST, socket_input_handler, s);
+                if (my_event_add(s->read_event,NULL) <0) {
+                  TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: my_event_add failed for socket %p\n", __FUNCTION__, s);
+                  return -1;
+                }else{
+                  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: my_event_add ok for socket %p\n", __FUNCTION__, s);
+                } 
+            #endif
+            
           }
           break;
         case TENTATIVE_TCP_SOCKET:
@@ -3412,8 +3727,13 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
               return -1;
             }
           } else {
-            s->read_event = event_new(s->e->event_base, s->fd, EV_READ | EV_PERSIST, socket_input_handler, s);
-            event_add(s->read_event, NULL);
+            #ifndef USE_FSTACK
+              s->read_event = event_new(s->e->event_base, s->fd, EV_READ | EV_PERSIST, socket_input_handler, s);
+              event_add(s->read_event, NULL);
+            #else
+              s->read_event = my_event_new(s->e->event_base,s->fd,EV_READ | EV_PERSIST, socket_input_handler, s);
+              my_event_add(s->read_event,NULL);
+            #endif
           }
           break;
         case SCTP_SOCKET:
@@ -3431,10 +3751,24 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
               return -1;
             }
 #endif
+#ifndef USE_FSTACK
             s->bev = bufferevent_socket_new(s->e->event_base, s->fd, TURN_BUFFEREVENTS_OPTIONS);
             bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
             bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
             bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
+#else
+
+        // F-Stack: registra socket para eventos de lectura y escritura
+        struct MyEvent *ev = my_event_new(s->e->event_base, s->fd, EV_READ | EV_WRITE, my_combined_handler, s);
+        if (my_event_add(ev, NULL) < 0) {
+          TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: my_event_add failed for socket %p\n", __FUNCTION__, s);
+          //return -1;
+        }else{
+          TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: my_event_add ok for socket %p\n", __FUNCTION__, s); 
+        }
+        s->read_event = ev;  // guarda referencia si necesitas desactivar/activar luego
+
+#endif
           }
           break;
         case TLS_SCTP_SOCKET:
@@ -3446,6 +3780,8 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
             }
           } else {
 #if TLS_SUPPORTED
+            
+            #ifndef USE_FSTACK
             if (!(s->ssl)) {
               //??? how we can get to this point ???
               set_socket_ssl(s, SSL_new(e->tls_ctx));
@@ -3455,9 +3791,22 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
               s->bev = bufferevent_openssl_socket_new(s->e->event_base, s->fd, s->ssl, BUFFEREVENT_SSL_OPEN,
                                                       TURN_BUFFEREVENTS_OPTIONS);
             }
+            
             bufferevent_setcb(s->bev, socket_input_handler_bev, socket_output_handler_bev, eventcb_bev, s);
             bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
             bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
+            #else
+
+                    // F-Stack: registra socket para eventos de lectura y escritura
+            struct MyEvent *ev = my_event_new(s->e->event_base, s->fd, EV_READ | EV_WRITE, my_combined_handler, s);
+            if (my_event_add(ev, NULL) < 0) {
+              TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: my_event_add failed for socket %p\n", __FUNCTION__, s);
+              //return -1;
+            }else{
+              TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: my_event_add ok for socket %p\n", __FUNCTION__, s);
+            }
+            s->read_event = ev;  // guarda referencia si necesitas desactivar/activar luego
+          #endif
 #endif
           }
           break;
@@ -3470,6 +3819,8 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
 
       s->read_cb = cb;
       s->read_ctx = ctx;
+      printf("DEBUG: %s: registered callback on socket %p, event_type=%d, cb=%p, ctx=%p\n", __FUNCTION__, s, event_type,
+             cb, ctx);
       return 0;
     }
   }

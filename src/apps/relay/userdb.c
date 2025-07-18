@@ -410,15 +410,19 @@ int get_user_key(int in_oauth, int *out_oauth, int *max_session_time, uint8_t *u
                  ioa_network_buffer_handle nbh) {
   int ret = -1;
 
+  printf("AUTH: get_user_key: usuario='%s', realm='%s', in_oauth=%d\n", usname, realm, in_oauth);
+
   if (max_session_time) {
     *max_session_time = 0;
   }
 
   if (in_oauth && out_oauth && usname && usname[0]) {
+    printf("AUTH: get_user_key: comprobando OAuth para usuario='%s'\n", usname);
 
     stun_attr_ref sar = stun_attr_get_first_by_type_str(ioa_network_buffer_data(nbh), ioa_network_buffer_get_size(nbh),
                                                         STUN_ATTRIBUTE_OAUTH_ACCESS_TOKEN);
     if (sar) {
+      printf("AUTH: get_user_key: OAuth token encontrado\n");
 
       int len = stun_attr_get_len(sar);
       const uint8_t *value = stun_attr_get_value(sar);
@@ -430,12 +434,14 @@ int get_user_key(int in_oauth, int *out_oauth, int *max_session_time, uint8_t *u
         const turn_dbdriver_t *dbd = get_dbdriver();
 
         if (dbd && dbd->get_oauth_key) {
+          printf("AUTH: get_user_key: buscando clave OAuth en base de datos\n");
 
           oauth_key_data_raw rawKey;
           memset(&rawKey, 0, sizeof(rawKey));
 
           int gres = (*(dbd->get_oauth_key))(usname, &rawKey);
           if (gres < 0) {
+            printf("AUTH: get_user_key: clave OAuth no encontrada\n");
             return ret;
           }
 
@@ -541,6 +547,7 @@ int get_user_key(int in_oauth, int *out_oauth, int *max_session_time, uint8_t *u
   }
 
   if (turn_params.use_auth_secret_with_timestamp) {
+    printf("AUTH: get_user_key: comprobando autenticación con secreto y timestamp\n");
 
     turn_time_t ctime = (turn_time_t)time(NULL);
     turn_time_t ts = 0;
@@ -550,6 +557,7 @@ int get_user_key(int in_oauth, int *out_oauth, int *max_session_time, uint8_t *u
     init_secrets_list(&sl);
 
     if (get_auth_secrets(&sl, realm) < 0) {
+      printf("AUTH: get_user_key: no se encontraron secretos para el realm\n");
       return ret;
     }
 
@@ -623,16 +631,19 @@ int get_user_key(int in_oauth, int *out_oauth, int *max_session_time, uint8_t *u
   ur_string_map_value_type ukey = NULL;
   ur_string_map_lock(turn_params.default_users_db.ram_db.static_accounts);
   if (ur_string_map_get(turn_params.default_users_db.ram_db.static_accounts, (ur_string_map_key_type)usname, &ukey)) {
+    printf("AUTH: get_user_key: usuario está en static_accounts\n");
     ret = 0;
   }
   ur_string_map_unlock(turn_params.default_users_db.ram_db.static_accounts);
 
   if (ret == 0) {
+    printf("AUTH: get_user_key: autenticación exitosa para usuario='%s'\n", usname);
     size_t sz = get_hmackey_size(SHATYPE_DEFAULT);
     memcpy(key, ukey, sz);
     return 0;
   }
 
+  printf("AUTH: get_user_key: autenticación fallida para usuario='%s'\n", usname);
   const turn_dbdriver_t *dbd = get_dbdriver();
   if (dbd && dbd->get_user_key) {
     ret = (*(dbd->get_user_key))(usname, realm, key);
@@ -748,6 +759,7 @@ void release_allocation_quota(uint8_t *user, int oauth, uint8_t *realm) {
 //////////////////////////////////
 
 int add_static_user_account(char *user) {
+  printf("DEBUG: add_static_user_account called for user='%s'\n", user);
   /* Realm is either default or empty for users taken from file or command-line */
   if (!user || turn_params.use_auth_secret_with_timestamp) {
     return -1;
@@ -810,6 +822,7 @@ int add_static_user_account(char *user) {
   // later.. value argument (the key variable) has ownership transfered into this function
   ur_string_map_put(turn_params.default_users_db.ram_db.static_accounts, (ur_string_map_key_type)usname,
                     (ur_string_map_value_type)*key);
+                    printf("DEBUG: Usuario '%s' añadido a static_accounts\n", usname);
   ur_string_map_unlock(turn_params.default_users_db.ram_db.static_accounts);
 
   turn_params.default_users_db.ram_db.users_number++;
@@ -1347,5 +1360,3 @@ void reread_realms(void) {
     (*dbd->reread_realms)(&realms_list);
   }
 }
-
-///////////////////////////////

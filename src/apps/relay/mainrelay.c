@@ -261,11 +261,12 @@ static char procgroupname[1025] = "\0";
 ////////////// Configuration functionality ////////////////////////////////
 
 static void read_config_file(int argc, char **argv, int pass);
-static void reload_ssl_certs(evutil_socket_t sock, short events, void *args);
+static void reload_ssl_certs(int sock, siginfo_t *events, void *args);
+void setup_signal(int signo, void (*handler)(int, siginfo_t *, void *));
 
-static void shutdown_handler(evutil_socket_t sock, short events, void *args);
-static void drain_handler(evutil_socket_t sock, short events, void *args);
-void *signal_thread_func(void *arg);
+static void shutdown_handler(int sock, siginfo_t *events, void *args);
+static void drain_handler(int sock, siginfo_t *events, void *args);
+//void *signal_thread_func(void *arg);
 
 //////////////////////////////////////////////////
 
@@ -2178,12 +2179,7 @@ static void set_option(int c, char *value) {
 #if !defined(TURN_NO_PQ)
   case 'e':
     STRCPY(turn_params.default_users_db.persistent_users_db.userdb, value);
-    turn_params.default_users_db.userdb_type = TURN_USERDB_TYPE_PQ;
-    break;
-#endif
-#if !defined(TURN_NO_MYSQL)
-  case 'M':
-    STRCPY(turn_params.default_users_db.persistent_users_db.userdb, value);
+    turn_params.default_users_db.userdb_tgeneral_relay_servers_numberdb.persistent_users_db.userdb, value);
     turn_params.default_users_db.userdb_type = TURN_USERDB_TYPE_MYSQL;
     break;
 #endif
@@ -2962,10 +2958,18 @@ struct FStackRunContext {
 
 static int fstack_main_loop(void *arg) {
   struct FStackRunContext *ctx = (struct FStackRunContext *)arg;
-  setup_server();  //revisando actualmente
-  drop_privileges();// no revisado
-  start_prometheus_server();// no revisado
+  // const char *ptype = ctx->cfg->dpdk.proc_type;
+  // int pid = ctx->cfg->dpdk.proc_id;
+  // if(!strcmp(ptype, "primary") && pid == 0){
+   // setup_server();
+  // }else if (!strcmp(ptype, "secondary") && pid == 1){
+  //   //revisando actualmente
+  // // drop_privileges();// no revisado
+  // // start_prometheus_server();// no revisado
+  
   run_listener_server(&(ctx->params->listener));// no revisado (aquí es donde muere actualmente)
+  // }
+ 
   return 0;
 }
 #endif
@@ -2977,21 +2981,27 @@ int main(int argc, char **argv) {
   IS_TURN_SERVER = 1;
 
 #ifdef USE_FSTACK
-  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-STACK IS BEING USED \n");
-  char *fstack_args[] = {
-      argv[0],
-      "-c", "/home/jose/coturn-modded/coturn-fstack/f-stack/config.ini",
-      "-t", "primary",
-      "-p", "0",
-      NULL
-  };
-  int fstack_argc = 7; // 6 elementos + NULL
+  // TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-STACK IS BEING USED \n");
+  // char *fstack_args[] = {
+  //     argv[0],
+  //     "-c", "/home/jose/coturn-modded/coturn-fstack/f-stack/config.ini",
+  //     "-t", "primary",
+  //     "-p", "0",
+  //     NULL
+  // };
+  // int fstack_argc = 7; // 6 elementos + NULL
 
-  if (ff_init(fstack_argc, fstack_args) < 0) {
+  if (ff_init(argc, argv) < 0) {
       fprintf(stderr, "F-Stack initialization failed\n");
       exit(EXIT_FAILURE);
   }
-  optind = 1;
+   optind = 1;
+    if (optind < argc && strcmp(argv[optind], "--") == 0) {
+        optind++;
+    }
+    optind++;
+    argc -= optind;
+    argv += optind;
 
 #else
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-STACK IS NOT BEING USED \n");
@@ -3051,7 +3061,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  optind = 0;
+  //optind = 0;
 
 #if !TLS_SUPPORTED
   turn_params.no_tls = 1;
@@ -3369,11 +3379,12 @@ int main(int argc, char **argv) {
     }
   }
 #endif
-#ifndef USE_FSTACK
+//#ifndef USE_FSTACK
   setup_server();
-#endif
+//#endif
 #if defined(WINDOWS)
   // TODO: implement it!!! add windows server
+#endif
 #ifndef USE_FSTACK // Revisado y no funciona con f-stack hay que cambiarlo, se propone solución hebra que controle las señales con sus handlers
   struct event *ev = evsignal_new(turn_params.listener.event_base, SIGUSR2, reload_ssl_certs, NULL);
   event_add(ev, NULL);
@@ -3385,19 +3396,31 @@ int main(int argc, char **argv) {
   ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);// no revisado
   event_add(ev, NULL);
 #else
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Working with Signal.h\n");
+  setup_signal(SIGUSR2, reload_ssl_certs);
+  setup_signal(SIGTERM, shutdown_handler);
+  setup_signal(SIGINT, shutdown_handler);
+  setup_signal(SIGUSR1, drain_handler);
 // pthread_t signal_thread;
 // pthread_create(&signal_thread, NULL, signal_thread_func, NULL);
 
 
 
 #endif
-#ifndef USE_FSTACK
+//#ifndef USE_FSTACK
   drop_privileges();
   start_prometheus_server();
-#endif
+//#endif
 #ifdef USE_FSTACK
 struct FStackRunContext ctx = { .params = &turn_params };
+TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-stack-j: Run events listener arrancado\n");
 ff_run(fstack_main_loop, &ctx);
+
+// rte_eal_remote_launch((lcore_function_t *)setup_server, &ls, 2);
+// rte_eal_remote_launch((lcore_function_t *)run_listener_server, NULL, 3);
+// rte_eal_wait_lcore(2);
+// rte_eal_wait_lcore(3);
+// rte_eal_cleanup()
 #else
   run_listener_server(&(turn_params.listener));
 #endif
@@ -3415,13 +3438,23 @@ int THREAD_cleanup(void);
 int THREAD_cleanup(void) { return 1; }
 #endif /* defined(OPENSSL_THREADS) */
 
+void setup_signal(int signo, void (*handler)(int, siginfo_t *, void *)) {
+    struct sigaction sa;
+    sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = handler;
+    sigemptyset(&sa.sa_mask);
+    
+    if (sigaction(signo, &sa, NULL) == -1) {
+        perror("sigaction");
+        exit(EXIT_FAILURE);
+    }
+}
 static void adjust_key_file_name(char *fn, const char *file_title, int critical) {
   char *full_path_to_file = NULL;
- event_add(ev, NULL);
-  ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);
-  event_add(ev, NULL);
-  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
-  event_add(ev, NULL);
+
+  if (!fn[0]) {
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "\nERROR: you must set the %s file parameter\n", file_title);
+    goto keyerr;
   } else {
 
     full_path_to_file = find_config_file(fn);
@@ -3433,11 +3466,12 @@ static void adjust_key_file_name(char *fn, const char *file_title, int critical)
       } else {
         fclose(f);
       }
-    } event_add(ev, NULL);
-  ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);
-  event_add(ev, NULL);
-  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
-  event_add(ev, NULL);
+    }
+
+    if (!full_path_to_file) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_WARNING, "cannot find %s file: %s (2)\n", file_title, fn);
+      goto keyerr;
+    }
 
     strncpy(fn, full_path_to_file, sizeof(turn_params.cert_file) - 1);
     fn[sizeof(turn_params.cert_file) - 1] = 0;
@@ -3889,34 +3923,38 @@ static void openssl_load_certificates(void) {
   TURN_MUTEX_UNLOCK(&turn_params.tls_mutex);
 }
 
-static void reload_ssl_certs(evutil_socket_t sock, short events, void *args) {
+static void reload_ssl_certs(int sock, siginfo_t *events, void *args) {
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Reloading TLS certificates and keys\n");
   openssl_load_certificates();
-  if (turn_params.tls_ctx_update_ev != NULL) {
-    event_active(turn_params.tls_ctx_update_ev, EV_READ, 0);
-  }
+  #ifndef USE_FSTACK
+    if (turn_params.tls_ctx_update_ev != NULL) {
+      event_active(turn_params.tls_ctx_update_ev, EV_READ, 0);
+    }
+  #endif //habría que comprobar si funciona sin esto
 
   UNUSED_ARG(sock);
   UNUSED_ARG(events);
   UNUSED_ARG(args);
 }
 
-static void shutdown_handler(evutil_socket_t sock, short events, void *args) {
+static void shutdown_handler(int sock, siginfo_t *events, void *args) {
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Terminating on signal %d\n", sock);
   turn_params.stop_turn_server = true;
-
+  #ifdef USE_FSTACK
+    my_stop();
+  #endif
   UNUSED_ARG(events);
   UNUSED_ARG(args);
 }
 
-static void drain_handler(evutil_socket_t sock, short events, void *args) {
+static void drain_handler(int sock, siginfo_t *events, void *args) {
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Draining then terminating on signal %d\n", sock);
   enable_drain_mode();
 
   UNUSED_ARG(events);
   UNUSED_ARG(args);
 }
-void *signal_thread_func(void *arg) {
+/*void *signal_thread_func(void *arg) {
     struct event_base *base = event_base_new();
 
     struct event *ev;
@@ -3938,7 +3976,7 @@ void *signal_thread_func(void *arg) {
     // Cleanup
     event_base_free(base);
     return NULL;
-}
+}*/
 
 
 ///////////////////////////////

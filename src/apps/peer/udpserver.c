@@ -100,9 +100,6 @@ static int udp_create_server_socket(server_type *const server, const char *const
     free(server_addr);
     return -1;
   }
-  #ifdef USE_FSTACK
-  server->udp_fd = udp_fd;
-  #endif
 
   if (sock_bind_to_device(udp_fd, (unsigned char *)server->ifname) < 0) {
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Cannot bind udp server socket to device %s\n", server->ifname);
@@ -120,6 +117,16 @@ static int udp_create_server_socket(server_type *const server, const char *const
       event_new(server->event_base, udp_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server_addr);
 
   event_add(udp_ev, NULL);
+#else
+  printf("DEBUG: Calling my_event_new in udp_create_server_socket fd: %d\n", udp_fd);
+  struct MyEvent *udp_ev = my_event_new(server->event_base,udp_fd,EV_READ | EV_PERSIST, udp_server_input_handler, server_addr);
+  if(udp_ev < 0){
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Error creating event for UDP server socket\n");
+    close(udp_fd);
+    free(server_addr);
+    return -1;
+  }
+  my_event_add(udp_ev, NULL);
 #endif
 
   if (server->verbose) {
@@ -142,7 +149,12 @@ static server_type *init_server(int verbose, const char *ifname, char **local_ad
   }
 
   server->verbose = verbose;
-  server->event_base = turn_event_base_new();
+  #ifndef USE_FSTACK
+    server->event_base = turn_event_base_new();
+  #else
+    server->event_base = my_event_base_new();
+  #endif
+ 
 
   while (las) {
     udp_create_server_socket(server, ifname, local_addresses[--las], port);
@@ -155,7 +167,11 @@ static server_type *init_server(int verbose, const char *ifname, char **local_ad
 static int clean_server(server_type *server) {
   if (server) {
     if (server->event_base) {
+      #ifndef USE_FSTACK
       event_base_free(server->event_base);
+      #else
+      my_event_base_free(server->event_base);
+      #endif
     }
     free(server);
   }
@@ -173,9 +189,13 @@ static void run_events(server_type *server) {
 
   timeout.tv_sec = 0;
   timeout.tv_usec = 100000;
-
-  event_base_loopexit(server->event_base, &timeout);
-  event_base_dispatch(server->event_base);
+  #ifndef USE_FSTACK
+    event_base_loopexit(server->event_base, &timeout);
+    event_base_dispatch(server->event_base);
+  #else
+  int tiempo_ms = timeout.tv_sec * 1000 + timeout.tv_usec / 1000;
+    my_event_loop(server->event_base, tiempo_ms);
+  #endif
 }
 
 /////////////////////////////////////////////////////////////
@@ -184,53 +204,55 @@ server_type *start_udp_server(int verbose, const char *ifname, char **local_addr
   return init_server(verbose, ifname, local_addresses, las, port);
 }
 
-#ifndef USE_FSTACK
 void run_udp_server(server_type *server) {
   if (server) {
     while (1) {
       struct timeval timeout = {0, 100000};
+      #ifndef USE_FSTACK
       event_base_loopexit(server->event_base, &timeout);
       event_base_dispatch(server->event_base);
+      #else
+      int tiempo_ms = timeout.tv_sec * 1000 + timeout.tv_usec / 1000;
+        my_event_loop(server->event_base, tiempo_ms);
+      #endif
     }
   }
 }
-#else
 
-int fstack_main_udp_loop(void *arg) {
-  server_type *server = (server_type *)arg;
-  struct epoll_event ev, events[32];
-  int epfd = my_epoll_create(1);
-  ev.events = EPOLLIN;
-  ev.data.fd = server->udp_fd;
+// int fstack_main_udp_loop(void *arg) {
+//   server_type *server = (server_type *)arg;
+//   struct epoll_event ev, events[32];
+//   int epfd = my_epoll_create(1);
+//   ev.events = EPOLLIN;
+//   ev.data.fd = server->udp_fd;
 
-  if (my_epoll_ctl(epfd, EPOLL_CTL_ADD, server->udp_fd, &ev) < 0) {
-    perror("ff_epoll_ctl");
-    return -1;
-  }
+//   if (my_epoll_ctl(epfd, EPOLL_CTL_ADD, server->udp_fd, &ev) < 0) {
+//     perror("ff_epoll_ctl");
+//     return -1;
+//   }
 
-  while (1) {
-    int n = my_epoll_wait(epfd, events, 32, 1000);
-    for (int i = 0; i < n; ++i) {
-      int fd = events[i].data.fd;
-      if (events[i].events & EPOLLIN) {
-        ioa_addr remote_addr;
-        stun_buffer buffer;
-        socklen_t slen = sizeof(remote_addr);
+//   while (1) {
+//     int n = my_epoll_wait(epfd, events, 32, 1000);
+//     for (int i = 0; i < n; ++i) {
+//       int fd = events[i].data.fd;
+//       if (events[i].events & EPOLLIN) {
+//         ioa_addr remote_addr;
+//         stun_buffer buffer;
+//         socklen_t slen = sizeof(remote_addr);
 
-        ssize_t len = ff_recvfrom(fd, buffer.buf, sizeof(buffer.buf) - 1, 0,
-                                  (struct sockaddr *)&remote_addr, &slen);
+//         ssize_t len = ff_recvfrom(fd, buffer.buf, sizeof(buffer.buf) - 1, 0,
+//                                   (struct sockaddr *)&remote_addr, &slen);
 
-        if (len > 0) {
-          buffer.len = len;
-          ff_sendto(fd, buffer.buf, buffer.len, 0,
-                    (struct sockaddr *)&remote_addr, slen);
-        }
-      }
-    }
-  }
-  return 0;
-}
-#endif
+//         if (len > 0) {
+//           buffer.len = len;
+//           ff_sendto(fd, buffer.buf, buffer.len, 0,
+//                     (struct sockaddr *)&remote_addr, slen);
+//         }
+//       }
+//     }
+//   }
+//   return 0;
+// }
 
 void clean_udp_server(server_type *server) {
   if (server) {

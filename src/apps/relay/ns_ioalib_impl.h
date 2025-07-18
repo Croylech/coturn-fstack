@@ -43,6 +43,8 @@
 
 #include "ns_turn_openssl.h"
 
+#include <rte_timer.h> //libreria jose
+
 #include "ns_turn_maps.h"
 #include "ns_turn_maps_rtcp.h"
 #include "ns_turn_server.h"
@@ -75,6 +77,13 @@ extern "C" {
 #define BUFFEREVENT_MAX_UDP_TO_TCP_WRITE (64 << 9)
 #define BUFFEREVENT_MAX_TCP_TO_TCP_WRITE (192 << 10)
 
+
+//////////librerias de jose
+
+//typedef struct listener_fifo listener_fifo_t;
+
+
+//////////fin de librerias de jose
 typedef struct _stun_buffer_list_elem {
   struct _stun_buffer_list_elem *next;
   stun_buffer buf;
@@ -107,11 +116,19 @@ struct cancelled_session_message {
 struct relay_server {
   turnserver_id id;
   super_memory_t *sm;
+  #ifndef USE_FSTACK
   struct event_base *event_base;
   struct bufferevent *in_buf;
   struct bufferevent *out_buf;
   struct bufferevent *auth_in_buf;
   struct bufferevent *auth_out_buf;
+  #else
+    struct MyEventBase *event_base;
+    listener_fifo_t *in_buf;
+    listener_fifo_t *out_buf;
+    listener_fifo_t *auth_in_buf;
+    listener_fifo_t *auth_out_buf;
+  #endif
   ioa_engine_handle ioa_eng;
   turn_turnserver server;
   pthread_t thr;
@@ -140,7 +157,11 @@ extern const int predef_timer_intervals[PREDEF_TIMERS_NUM];
 
 struct _ioa_engine {
   super_memory_t *sm;
+  #ifndef USE_FSTACK
   struct event_base *event_base;
+  #else
+  struct MyEventBase *event_base;
+  #endif
   int deallocate_eb;
   int verbose;
   turnipports *tp;
@@ -152,7 +173,11 @@ struct _ioa_engine {
   ioa_timer_handle timer_ev;
   char cmsg[TURN_CMSG_SZ + 1];
   int predef_timer_intervals[PREDEF_TIMERS_NUM];
-  struct timeval predef_timers[PREDEF_TIMERS_NUM];
+  #ifndef USE_FSTACK
+    struct timeval predef_timers[PREDEF_TIMERS_NUM];
+  #else
+    struct rte_timer predef_timers[PREDEF_TIMERS_NUM];
+  #endif
   /* Relays */
   char relay_ifname[1025];
   int default_relays;
@@ -188,10 +213,15 @@ struct _ioa_socket {
   int connected;
   ioa_addr remote_addr;
   ioa_engine_handle e;
-  struct event *read_event;
+  #ifndef USE_FSTACK
+    struct event *read_event;
+  #else
+    struct MyEvent *read_event;
+  #endif
   ioa_net_event_handler read_cb;
   void *read_ctx;
   int done;
+  int read_enabled;
   ts_ur_super_session *session;
   int current_df_relay_flag;
   /* RFC6156: if IPv6 is involved, do not use DF: */
@@ -210,11 +240,19 @@ struct _ioa_socket {
   // Connection session:
   tcp_connection *sub_session;
   // Connect:
+  #ifndef USE_FSTACK
   struct bufferevent *conn_bev;
+  #else
+  struct MyEvent *conn_bev;
+  #endif
   connect_cb conn_cb;
   void *conn_arg;
   // Accept:
+  #ifndef USE_FSTACK
   struct evconnlistener *list_ev;
+  #else
+  struct MyEvConnListener *list_ev;
+  #endif
   accept_cb acb;
   void *acbarg;
   /* <<== RFC 6062 */
@@ -223,7 +261,11 @@ struct _ioa_socket {
 };
 
 typedef struct _timer_event {
-  struct event *ev;
+  #ifndef USE_FSTACK
+    struct event *ev;
+  #else
+    struct rte_timer dpdk_timer;
+  #endif
   ioa_engine_handle e;
   ioa_timer_event_handler cb;
   void *ctx;
@@ -239,8 +281,15 @@ int get_realm_data(char *name, realm_params_t *rp);
 
 /* engine handling */
 
-ioa_engine_handle create_ioa_engine(super_memory_t *sm, struct event_base *eb, turnipports *tp, const char *relay_if,
-                                    size_t relays_number, char **relay_addrs, int default_relays, int verbose
+ioa_engine_handle create_ioa_engine(super_memory_t *sm
+#ifndef USE_FSTACK
+                                  , struct event_base *eb
+#else     
+                                  , struct MyEventBase *eb
+#endif
+                                  , turnipports *tp,
+                                    const char *relay_ifname, size_t relays_number, char **relay_addrs,
+                                    int default_relays, int verbose
 #if !defined(TURN_NO_HIREDIS)
                                     ,
                                     redis_stats_db_t *redis_stats_db
