@@ -1836,7 +1836,7 @@ void run_listener_server(struct listener_server *ls) {
 
     if (eve(turn_params.verbose)) {
       if ((cycle++ & 15) == 0) {
-        TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: cycle=%u\n", __FUNCTION__, cycle);
+        //TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: cycle=%u\n", __FUNCTION__, cycle);
       }
     }
 
