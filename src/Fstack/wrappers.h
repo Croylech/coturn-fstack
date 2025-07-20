@@ -1,6 +1,9 @@
 #ifndef WRAPPERS_H
 #define WRAPPERS_H
 
+
+
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -21,10 +24,14 @@
 extern "C" {
 #endif
 
-
+#define TRACE_EVENT_NEW(base, fd, evs, cb, ctx)                        \
+  ({                                                                  \
+    printf("DEBUG: registering callback %s at %p\n", #cb, (void*)(cb)); \
+    my_event_new((base), (fd), (evs), (cb), (ctx));                    \
+  })
 //forward declarationss
-#define FIFO_CAPACITY 2048
-#define MAX_FIFOS 16
+#define FIFO_CAPACITY 3036
+#define MAX_FIFOS 100
 typedef struct _ioa_socket *ioa_socket_handle;
 
 

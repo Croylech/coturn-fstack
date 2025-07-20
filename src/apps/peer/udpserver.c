@@ -119,7 +119,7 @@ static int udp_create_server_socket(server_type *const server, const char *const
   event_add(udp_ev, NULL);
 #else
   printf("DEBUG: Calling my_event_new in udp_create_server_socket fd: %d\n", udp_fd);
-  struct MyEvent *udp_ev = my_event_new(server->event_base,udp_fd,EV_READ | EV_PERSIST, udp_server_input_handler, server_addr);
+  struct MyEvent *udp_ev = TRACE_EVENT_NEW(server->event_base,udp_fd,EV_READ | EV_PERSIST, udp_server_input_handler, server_addr);
   if(udp_ev < 0){
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Error creating event for UDP server socket\n");
     close(udp_fd);
@@ -152,6 +152,7 @@ static server_type *init_server(int verbose, const char *ifname, char **local_ad
   #ifndef USE_FSTACK
     server->event_base = turn_event_base_new();
   #else
+  printf("Esta mierda se lanza?\n");
     server->event_base = my_event_base_new();
   #endif
  

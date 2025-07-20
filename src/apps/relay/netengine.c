@@ -377,7 +377,7 @@ void set_ssl_ctx(ioa_engine_handle e, turn_params_t *params) {
     #ifndef USE_FSTACK
       struct event *ev = event_new(base, -1, EV_PERSIST, (event_callback_fn)update_ssl_ctx, (void *)args);
     #else
-      struct MyEvent *ev = my_event_new(base,-1,EV_PERSIST,(event_callback_fn)update_ssl_ctx,(void *)args);
+      struct MyEvent *ev = TRACE_EVENT_NEW(base,-1,EV_PERSIST,(event_callback_fn)update_ssl_ctx,(void *)args);
     #endif
     TURN_MUTEX_LOCK(&turn_params.tls_mutex);
     args->next = params->tls_ctx_update_ev;
@@ -534,6 +534,7 @@ void send_auth_message_to_auth_server(struct auth_message *am) {
 
 #ifndef USE_FSTACK
   static void auth_server_receive_message(struct bufferevent *bev, void *ptr) {
+    printf("Entrando en %s\n", __FUNCTION__);
     UNUSED_ARG(ptr);
 
     struct auth_message am;
@@ -604,11 +605,15 @@ if (ur_string_map_get(turn_params.default_users_db.ram_db.static_accounts, (ur_s
 
         struct relay_server *relay_server = get_relay_server(am->id);
         if (relay_server && relay_server->auth_out_buf) {
+            printf("DEBUG: relay_server_id=%d, auth_out_buf=%p\n", (int)relay_server->id, (void*)relay_server->auth_out_buf);
             struct auth_message *copy = malloc(sizeof(*copy));
             if (copy) {
                 memcpy(copy, am, sizeof(*am));
                 printf("AUTH: Enviando respuesta de autenticación a relay_server %d\n", (int)am->id);
-                my_fifo_push(relay_server->auth_out_buf->fifo, copy);
+                if(my_fifo_push(relay_server->auth_out_buf->fifo, copy) < 0) {
+                    TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
+                    free(copy);
+                }
             }
         } else {
             TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: can't find relay for turn_server_id: %d\n", __FUNCTION__, (int)am->id);
@@ -684,7 +689,7 @@ label_end:
 static int send_socket_to_relay(turnserver_id id, uint64_t cid, stun_tid *tid, ioa_socket_handle s,
                                 int message_integrity, MESSAGE_TO_RELAY_TYPE rmt, ioa_net_data *nd, int can_resume) {
   int ret = -1;
-
+  printf("Entrando en %s\n",__FUNCTION__);
   struct message_to_relay sm;
   memset(&sm, 0, sizeof(struct message_to_relay));
   sm.t = rmt;
@@ -798,7 +803,7 @@ err:
 
 int send_session_cancellation_to_relay(turnsession_id sid) {
   int ret = 0;
-
+  printf("Entrando en %s\n",__FUNCTION__);
   struct message_to_relay sm;
   memset(&sm, 0, sizeof(struct message_to_relay));
   sm.t = RMT_CANCEL_SESSION;
@@ -931,6 +936,8 @@ static int handle_relay_message(relay_server_handle rs, struct message_to_relay 
       perror("Weird buffer type\n");
     }
     }
+  }else{
+    printf("DEBUG: No se recibió un mensaje de relay\n");
   }
 
   return 0;
@@ -991,6 +998,7 @@ static void handle_relay_auth_message(struct relay_server *rs, struct auth_messa
   }
 
 void relay_receive_auth_message_from_fifo(listener_fifo_t *lf, void *ptr) {
+    printf("LOG: %s: Mensaje recibido\n",__FUNCTION__);
     struct relay_server *rs = (struct relay_server *)ptr;
     struct auth_message *am;
 
@@ -1003,6 +1011,7 @@ void relay_receive_auth_message_from_fifo(listener_fifo_t *lf, void *ptr) {
 #endif
 static int send_message_from_listener_to_client(ioa_engine_handle e, ioa_network_buffer_handle nbh, ioa_addr *origin,
                                                 ioa_addr *destination) {
+  printf("Entrando en %s\n",__FUNCTION__);
   struct message_to_listener mm;
   memset(&mm, 0, sizeof(mm));
 
@@ -1145,6 +1154,7 @@ static ioa_engine_handle create_new_listener_engine(void) {
   #ifndef USE_FSTACK
     struct event_base *eb = turn_event_base_new();
   #else
+    printf("Y esta otra basura?\n");
     struct MyEventBase *eb = my_event_base_new();
   #endif
   super_memory_t *sm = new_super_memory_region();
@@ -1877,7 +1887,7 @@ static void setup_relay_server(struct relay_server *rs, ioa_engine_handle e, int
     #ifndef USE_FSTACK
     rs->event_base = turn_event_base_new();
     #else
-    rs->event_base = my_event_base_new();
+    rs->event_base = turn_params.listener.event_base; //es necesario usar el mismo event_base que el listener
     #endif
     rs->ioa_eng = create_ioa_engine(rs->sm, rs->event_base, turn_params.listener.tp, turn_params.relay_ifname,
                                     turn_params.relays_number, turn_params.relay_addrs, turn_params.default_relays,
@@ -1964,38 +1974,60 @@ static void *run_general_relay_thread(void *arg) {
 }
 
 static void setup_general_relay_servers(void) {
-  size_t i = 0;
-
-  for (i = 0; i < get_real_general_relay_servers_number(); i++) {
-    #ifdef USE_FSTACK
-      turn_params.general_relay_servers_number = 0;
-    #endif
-    if (turn_params.general_relay_servers_number == 0) {
-      #ifdef USE_FSTACK
-        TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "About to call //ff_thread_init in netengine.c - 1717\n");
-        //ff_thread_init();
-      #endif
-      general_relay_servers[i] = (struct relay_server *)allocate_super_memory_engine(turn_params.listener.ioa_eng,
-                                                                                     sizeof(struct relay_server));
-      general_relay_servers[i]->id = (turnserver_id)i;
-      general_relay_servers[i]->sm = NULL;
-      setup_relay_server(general_relay_servers[i], turn_params.listener.ioa_eng,
-                         ((turn_params.net_engine_version == NEV_UDP_SOCKET_PER_THREAD) ||
-                          (turn_params.net_engine_version == NEV_UDP_SOCKET_PER_SESSION)) &&
-                             turn_params.rfc5780);
-      general_relay_servers[i]->thr = pthread_self();
-    } else {
-      super_memory_t *sm = new_super_memory_region();
-      general_relay_servers[i] = (struct relay_server *)allocate_super_memory_region(sm, sizeof(struct relay_server));
-      general_relay_servers[i]->id = (turnserver_id)i;
-      general_relay_servers[i]->sm = sm;
-      if (pthread_create(&(general_relay_servers[i]->thr), NULL, run_general_relay_thread, general_relay_servers[i])) {
-        perror("Cannot create relay thread\n");
-        exit(-1);
-      }
-      pthread_detach(general_relay_servers[i]->thr);
+    size_t i = 0;
+#ifndef USE_FSTACK
+    /* Modo libevent: misma lógica que antes (con hilos si turn_params.general_relay_servers_number > 0) */
+    for (i = 0; i < get_real_general_relay_servers_number(); i++) {
+        if (turn_params.general_relay_servers_number == 0) {
+            general_relay_servers[i] = (struct relay_server*)
+                allocate_super_memory_engine(turn_params.listener.ioa_eng,
+                                            sizeof(struct relay_server));
+            general_relay_servers[i]->id = (turnserver_id)i;
+            general_relay_servers[i]->sm = NULL;
+            setup_relay_server(general_relay_servers[i],
+                               turn_params.listener.ioa_eng,
+                               ((turn_params.net_engine_version == NEV_UDP_SOCKET_PER_THREAD) ||
+                                (turn_params.net_engine_version == NEV_UDP_SOCKET_PER_SESSION)) &&
+                                   turn_params.rfc5780);
+            general_relay_servers[i]->thr = pthread_self();
+        } else {
+            super_memory_t *sm = new_super_memory_region();
+            general_relay_servers[i] = (struct relay_server*)
+                allocate_super_memory_region(sm, sizeof(struct relay_server));
+            general_relay_servers[i]->id = (turnserver_id)i;
+            general_relay_servers[i]->sm = sm;
+            if (pthread_create(&(general_relay_servers[i]->thr),
+                               NULL,
+                               run_general_relay_thread,
+                               general_relay_servers[i])) {
+                perror("Cannot create relay thread\n");
+                exit(-1);
+            }
+            pthread_detach(general_relay_servers[i]->thr);
+        }
     }
-  }
+#else
+    /* Modo F‑Stack: sin hilos, sólo registro los relay servers a mi event_base compartido */
+    ioa_engine_handle shared_eng = turn_params.listener.ioa_eng;
+
+    for (i = 0; i < get_real_general_relay_servers_number(); i++) {
+        general_relay_servers[i] = (struct relay_server*)
+            allocate_super_memory_engine(shared_eng,
+                                        sizeof(struct relay_server));
+        general_relay_servers[i]->id = (turnserver_id)i;
+        general_relay_servers[i]->sm = NULL;
+
+        /* Todos usan el mismo event_base e ioa_eng */
+        setup_relay_server(general_relay_servers[i],
+                           shared_eng,
+                           ((turn_params.net_engine_version == NEV_UDP_SOCKET_PER_THREAD) ||
+                            (turn_params.net_engine_version == NEV_UDP_SOCKET_PER_SESSION)) &&
+                               turn_params.rfc5780);
+
+        /* No creamos hilos: run_events() se lanzará desde el main loop */
+        general_relay_servers[i]->thr = pthread_self();
+    }
+#endif
 }
 
 static int run_auth_server_flag = 1;
@@ -2072,7 +2104,8 @@ static void *run_auth_server_thread(void *arg) {
 void setup_auth_servers_fstack(void) {
     for (authserver_id sn = 0; sn < authserver_number; ++sn) {
         authserver[sn].id = sn;
-        authserver[sn].event_base = my_event_base_new();
+        //authserver[sn].event_base = my_event_base_new();  
+        authserver[sn].event_base = turn_params.listener.event_base; // usar el mismo event_base que el listener
         listener_fifo_t *lf = create_listener_fifo(auth_server_receive_message_from_fifo, &authserver[sn]);
         register_listener_fifo(lf);
         authserver[sn].in_buf = lf;
@@ -2129,7 +2162,7 @@ static void setup_admin_server(void) {
 
     pthread_detach(adminserver.thr);
   #else
-    adminserver.event_base = my_event_base_new();
+    //adminserver.event_base = my_event_base_new();
 
     setup_admin_thread();
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-stack-j: Admin auth server registrado en event_base principal");
@@ -2141,7 +2174,7 @@ void setup_server(void) {
 #if defined(WINDOWS)
   evthread_use_windows_threads();
 #else
-  evthread_use_pthreads(); //esto no se si se ejecuta, pero creo que no porque no estoy usando libevent
+  //evthread_use_pthreads(); //esto no se si se ejecuta, pero creo que no porque no estoy usando libevent
 #endif
 
   TURN_MUTEX_INIT(&mutex_bps);

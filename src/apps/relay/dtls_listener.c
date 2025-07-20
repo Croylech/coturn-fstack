@@ -328,7 +328,8 @@ static int handle_udp_packet(dtls_listener_relay_server_type *server, struct mes
   if ((ur_addr_map_get(amap, &(sm->m.sm.nd.src_addr), &mvt) > 0) && mvt) {
     chs = (ioa_socket_handle)mvt;
   }
-
+  //ULTIMO: En este if no entra
+  printf("DEBUG antes del if: chs=%p, amap=%p, s=%p, sm->m.sm.nd.nbh=%p\n", chs, amap, s, sm->m.sm.nd.nbh);
   if (chs && !ioa_socket_tobeclosed(chs) && (chs->sockets_container == amap) && (chs->magic == SOCKET_MAGIC)) {
     s = chs;
     sm->m.sm.s = s;
@@ -357,7 +358,8 @@ static int handle_udp_packet(dtls_listener_relay_server_type *server, struct mes
         sm->m.sm.nd.nbh = NULL;
       }
     }
-
+    printf("DEBUG: s=%p, read_cb=%p, nbh=%p\n", s, s ? s->read_cb : NULL, sm->m.sm.nd.nbh);
+    printf("DEBUG: ioa_socket_check_bandwidth=%d\n", s ? ioa_socket_check_bandwidth(s, sm->m.sm.nd.nbh, 1) : -1);
     if (s && ioa_socket_check_bandwidth(s, sm->m.sm.nd.nbh, 1)) {
       s->e = ioa_eng;
       if (s && s->read_cb && sm->m.sm.nd.nbh) {
@@ -803,7 +805,10 @@ static int create_server_socket(dtls_listener_relay_server_type *server, int rep
     event_add(server->udp_listen_ev, NULL);
     #else
       printf("DEBUG: Calling my_event_new in dtls_listener - line: %d, fd: %d\n", __LINE__, udp_listen_fd);
-      server->udp_listen_ev = my_event_new(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
+      printf("DEBUG FLAGS: EV_READ=%#x, EV_WRITE=%#x, EV_PERSIST=%#x\n",
+       EV_READ, EV_WRITE, EV_PERSIST);
+
+      server->udp_listen_ev = TRACE_EVENT_NEW(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
       my_event_add(server->udp_listen_ev,NULL);
     #endif
   }
@@ -878,7 +883,7 @@ static int reopen_server_socket(dtls_listener_relay_server_type *server, evutil_
      event_add(server->udp_listen_ev, NULL);
     #else
       printf("DEBUG: Calling my_event_new in dtls_listener - line: %d, fd: %d\n", __LINE__, udp_listen_fd);
-      server->udp_listen_ev = my_event_new(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
+      server->udp_listen_ev = TRACE_EVENT_NEW(server->e->event_base, udp_listen_fd, EV_READ | EV_PERSIST, udp_server_input_handler, server);
       my_event_add(server->udp_listen_ev,NULL);
     #endif
 

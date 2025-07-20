@@ -1666,7 +1666,7 @@ again:
       struct event *ev = event_new(client_event_base, clnet_fd, EV_READ | EV_PERSIST, client_input_handler, elem);
       event_add(ev, NULL);
     #else
-      struct MyEvent *ev = my_event_new(client_event_base, clnet_fd, EV_READ | EV_PERSIST, client_input_handler, elem);
+      struct MyEvent *ev = TRACE_EVENT_NEW(client_event_base, clnet_fd, EV_READ | EV_PERSIST, client_input_handler, elem);
       my_event_add(ev,NULL);
     #endif
 

@@ -1330,7 +1330,8 @@ void setup_admin_thread(void) {
   #ifndef USE_FSTACK
     adminserver.event_base = turn_event_base_new();
   #else
-    adminserver.event_base = my_event_base_new();
+    //adminserver.event_base = my_event_base_new();
+    adminserver.event_base = turn_params.listener.event_base; // usar el mismo event_base que el listener
   #endif
   super_memory_t *sm = new_super_memory_region();
   adminserver.e = create_ioa_engine(sm, adminserver.event_base, turn_params.listener.tp, turn_params.relay_ifname,
@@ -1457,6 +1458,7 @@ void setup_admin_thread(void) {
 }
 
 void admin_server_receive_message(
+  
   #ifndef USE_FSTACK
     struct bufferevent *bev,
   #else
@@ -1464,6 +1466,7 @@ void admin_server_receive_message(
   #endif
     void *ptr)
 {
+  printf("Entrando en %s \n", __FUNCTION__);
     UNUSED_ARG(ptr);
 
     #ifndef USE_FSTACK
@@ -1515,7 +1518,7 @@ void admin_server_receive_message(
 
 int send_turn_session_info(struct turn_session_info *tsi) {
     int ret = -1;
-
+    printf("Entrando en %s\n",__FUNCTION__);
     if (!tsi) {
         return ret;
     }
@@ -3880,7 +3883,7 @@ static void handle_https(ioa_socket_handle s, ioa_network_buffer_handle nbh) {
 }
 
 static void https_input_handler(ioa_socket_handle s, int event_type, ioa_net_data *data, void *arg, int can_resume) {
-
+  printf("Entrando en %s\n",__FUNCTION__);
   UNUSED_ARG(arg);
   UNUSED_ARG(s);
   UNUSED_ARG(event_type);
@@ -3900,6 +3903,7 @@ void https_admin_server_receive_message(
 #endif
     void *ptr)
 {
+  printf("Entrando en %s\n",__FUNCTION__);
     UNUSED_ARG(ptr);
 
 #ifndef USE_FSTACK
@@ -3921,7 +3925,8 @@ void https_admin_server_receive_message(
 #else
     void *item = NULL;
     while ((item = my_fifo_pop(lf->fifo)) != NULL) {
-        ioa_socket_handle s = (ioa_socket_handle)item;
+        ioa_socket_handle s = *(ioa_socket_handle *)item;
+        free(item);
         register_callback_on_ioa_socket(adminserver.e, s,
                                         IOA_EV_READ,
                                         https_input_handler,
@@ -3933,6 +3938,7 @@ void https_admin_server_receive_message(
 
 
 void send_https_socket(ioa_socket_handle s) {
+  printf("Entrando en %s\n",__FUNCTION__);
 #ifndef USE_FSTACK
     struct evbuffer *output = bufferevent_get_output(adminserver.https_out_buf);
     if (output) {

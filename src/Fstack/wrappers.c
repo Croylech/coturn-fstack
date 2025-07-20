@@ -209,6 +209,7 @@ int my_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeo
 //events
 
 struct MyEventBase* my_event_base_new() {
+    printf("LOG: my_event_base_new called\n");
     struct MyEventBase *base = malloc(sizeof(struct MyEventBase));
     if (!base)
         return NULL;
@@ -468,20 +469,77 @@ void free_my_fifo(my_fifo_t *f) {
     free(f);
 }
 
+// int my_fifo_push(my_fifo_t *f, void *item) {
+//     int next = (f->tail + 1) % f->capacity;
+//     if (next == f->head) return -1;  // full
+//     f->items[f->tail] = item;
+//     f->tail = next;
+//     return 0;
+// }
+
+// void *my_fifo_pop(my_fifo_t *f) {
+//     if (f->head == f->tail) return NULL;
+//     void *item = f->items[f->head];
+//     f->head = (f->head + 1) % f->capacity;
+//     return item;
+// }
+
+#include <assert.h>
+#include <stdio.h>
+
 int my_fifo_push(my_fifo_t *f, void *item) {
     int next = (f->tail + 1) % f->capacity;
-    if (next == f->head) return -1;  // full
+
+    // Mide la longitud actual (número de items en cola)
+    int len = (f->tail - f->head + f->capacity) % f->capacity;
+
+    fprintf(stderr,
+        "[FIFO PUSH] %p before: head=%d tail=%d len=%d cap=%d → ",
+        (void*)f, f->head, f->tail, len, f->capacity);
+
+    if (next == f->head) {
+        // ¡Cola llena!
+        fprintf(stderr, "FULL (cannot push)\n");
+        assert(len + 1 <= f->capacity);  // aquí lanzará si algo no cuadra
+        return -1;
+    }
+
     f->items[f->tail] = item;
     f->tail = next;
+
+    len = (f->tail - f->head + f->capacity) % f->capacity;
+    fprintf(stderr,
+        "OK after: head=%d tail=%d len=%d cap=%d\n",
+        f->head, f->tail, len, f->capacity);
+
     return 0;
 }
 
 void *my_fifo_pop(my_fifo_t *f) {
-    if (f->head == f->tail) return NULL;
+    // Mide la longitud actual antes de pop
+    int len = (f->tail - f->head + f->capacity) % f->capacity;
+    fprintf(stderr,
+        "[FIFO POP ] %p before: head=%d tail=%d len=%d cap=%d → ",
+        (void*)f, f->head, f->tail, len, f->capacity);
+
+    if (f->head == f->tail) {
+        // ¡Cola vacía!
+        fprintf(stderr, "EMPTY (cannot pop)\n");
+        assert(len >= 0);  // para verificar que no nos hayamos pasado
+        return NULL;
+    }
+
     void *item = f->items[f->head];
     f->head = (f->head + 1) % f->capacity;
+
+    len = (f->tail - f->head + f->capacity) % f->capacity;
+    fprintf(stderr,
+        "OK after: head=%d tail=%d len=%d cap=%d\n",
+        f->head, f->tail, len, f->capacity);
+
     return item;
 }
+
 
 int my_fifo_is_empty(my_fifo_t *f) {
     return f->head == f->tail;

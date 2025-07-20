@@ -978,7 +978,7 @@ static uint8_t get_transport_value(const uint8_t *value) {
 static int handle_turn_allocate(turn_turnserver *server, ts_ur_super_session *ss, stun_tid *tid, int *resp_constructed,
                                 int *err_code, const uint8_t **reason, uint16_t *unknown_attrs, uint16_t *ua_num,
                                 ioa_net_data *in_buffer, ioa_network_buffer_handle nbh) {
-
+                                  printf("Entrando en %s\n", __FUNCTION__);
   int err_code4 = 0;
   int err_code6 = 0;
 
@@ -3559,7 +3559,7 @@ static void set_alternate_server(turn_server_addrs_list_t *asl, const ioa_addr *
 
 static int handle_turn_command(turn_turnserver *server, ts_ur_super_session *ss, ioa_net_data *in_buffer,
                                ioa_network_buffer_handle nbh, int *resp_constructed, int can_resume) {
-
+                                printf("Entrando en %s\n", __FUNCTION__);
   stun_tid tid;
   int err_code = 0;
   const uint8_t *reason = NULL;
@@ -4270,7 +4270,8 @@ static int write_client_connection(turn_turnserver *server, ts_ur_super_session 
   } else {
 
     if (eve(server->verbose)) {
-      TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: prepare to write to s %p\n", __FUNCTION__, ss->client_socket);
+      //TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: prepare to write to s %p\n", __FUNCTION__, ss->client_socket);
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: prepare to write to s fd=%d (session_id=%llu)\n", __FUNCTION__, ss->client_socket ? ss->client_socket->fd : -1, (unsigned long long)ss->id);
     }
 
     int skip = 0;
@@ -4333,7 +4334,7 @@ static int create_relay_connection(turn_turnserver *server, ts_ur_super_session 
                                    int address_family, uint8_t transport, int even_port, uint64_t in_reservation_token,
                                    uint64_t *out_reservation_token, int *err_code, const uint8_t **reason,
                                    accept_cb acb) {
-
+                                    printf("Entrando en %s\n", __FUNCTION__);
   if (server && ss && ss->client_socket && !ioa_socket_tobeclosed(ss->client_socket)) {
 
     allocation *a = get_allocation_ss(ss);
@@ -4418,6 +4419,8 @@ static int create_relay_connection(turn_turnserver *server, ts_ur_super_session 
     }
 
     if (get_ioa_socket_type(newelem->s) != TCP_SOCKET) {
+        printf("[DEBUG] create_relay_connection: antes de register_callback, socket=%p, parent_s=%p, fd=%d\n",
+         (void*)newelem->s, (void*)newelem->s->parent_s, get_ioa_socket_type(newelem->s));
       if (register_callback_on_ioa_socket(server->e, newelem->s, IOA_EV_READ, peer_input_handler, ss, 0) < 0) {
         IOA_CLOSE_SOCKET(newelem->s);
         IOA_CLOSE_SOCKET(rtcp_s);
@@ -4425,6 +4428,8 @@ static int create_relay_connection(turn_turnserver *server, ts_ur_super_session 
         *reason = (const uint8_t *)"Wrong initialization (internal error)";
         return -1;
       }
+        printf("[DEBUG] create_relay_connection: después de register_callback, socket=%p, parent_s=%p\n",
+         (void*)newelem->s, (void*)newelem->s->parent_s);
     }
 
     if (lifetime < 1) {
@@ -4476,8 +4481,10 @@ static int refresh_relay_connection(turn_turnserver *server, ts_ur_super_session
 static int read_client_connection(turn_turnserver *server, ts_ur_super_session *ss, ioa_net_data *in_buffer,
                                   int can_resume, int count_usage) {
   FUNCSTART;
-  printf("DEBUG: read_client_connection: session=%p fd=%d len=%zu\n", ss, ss && ss->client_socket ? ss->client_socket->fd : -1,
-         in_buffer && in_buffer->nbh ? ioa_network_buffer_get_size(in_buffer->nbh) : 0);
+  printf("DEBUG: read_client_connection: session_id=%llu fd=%d len=%zu\n",
+       ss ? (unsigned long long)ss->id : 0,
+       ss && ss->client_socket ? ss->client_socket->fd : -1,
+       in_buffer && in_buffer->nbh ? ioa_network_buffer_get_size(in_buffer->nbh) : 0);
   if (!server || !ss || !in_buffer || !(ss->client_socket) || ss->to_be_closed ||
       ioa_socket_tobeclosed(ss->client_socket)) {
     FUNCEND;

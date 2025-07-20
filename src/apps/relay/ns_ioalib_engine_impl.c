@@ -1420,7 +1420,7 @@ ioa_socket_handle ioa_create_connecting_tcp_relay_socket(ioa_socket_handle s, io
     ret->conn_cb = cb;
 
     // Registrar el socket en el loop para EV_WRITE y detectar conexión completada
-    struct MyEvent *ev = my_event_new(ret->e->event_base, ret->fd, EV_WRITE, connect_eventcb, ret);
+    struct MyEvent *ev = TRACE_EVENT_NEW(ret->e->event_base, ret->fd, EV_WRITE, connect_eventcb, ret);
     if (!ev) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Failed to allocate MyEvent for connect");
       IOA_CLOSE_SOCKET(ret);
@@ -2665,7 +2665,7 @@ static int socket_input_worker(ioa_socket_handle s) {
         bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
       #else
         // F-Stack: registra socket para eventos de lectura y escritura
-        struct MyEvent *ev = my_event_new(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
+        struct MyEvent *ev = TRACE_EVENT_NEW(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
         my_event_add(ev, NULL);
         s->read_event = ev;  // guarda referencia si necesitas desactivar/activar luego
       #endif
@@ -2714,7 +2714,7 @@ static int socket_input_worker(ioa_socket_handle s) {
       bufferevent_setwatermark(s->bev, EV_READ | EV_WRITE, 0, BUFFEREVENT_HIGH_WATERMARK);
       bufferevent_enable(s->bev, EV_READ | EV_WRITE); /* Start reading. */
     #else
-      struct MyEvent *ev = my_event_new(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
+      struct MyEvent *ev = TRACE_EVENT_NEW(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
       my_event_add(ev, NULL);
       s->read_event = ev;  // guardar referencia para habilitar/deshabilitar después si hace falta
     #endif
@@ -2887,6 +2887,7 @@ try_start:
 }
 
 static void socket_input_handler(evutil_socket_t fd, short what, void *arg) {
+  printf("Entrando en %s\n", __FUNCTION__);
 
   if (!(what & EV_READ)) {
     return;
@@ -3704,7 +3705,7 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
                   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: event_add ok for socket %p\n", __FUNCTION__, s);
                 }
               #else
-                s->read_event = my_event_new(s->e->event_base,s->fd,EV_READ | EV_PERSIST, socket_input_handler, s);
+                s->read_event = TRACE_EVENT_NEW(s->e->event_base,s->fd,EV_READ | EV_PERSIST, socket_input_handler, s);
                 if (my_event_add(s->read_event,NULL) <0) {
                   TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: my_event_add failed for socket %p\n", __FUNCTION__, s);
                   return -1;
@@ -3732,7 +3733,7 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
               s->read_event = event_new(s->e->event_base, s->fd, EV_READ | EV_PERSIST, socket_input_handler, s);
               event_add(s->read_event, NULL);
             #else
-              s->read_event = my_event_new(s->e->event_base,s->fd,EV_READ | EV_PERSIST, socket_input_handler, s);
+              s->read_event = TRACE_EVENT_NEW(s->e->event_base,s->fd,EV_READ | EV_PERSIST, socket_input_handler, s);
               my_event_add(s->read_event,NULL);
             #endif
           }
@@ -3761,7 +3762,7 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
 
         // F-Stack: registra socket para eventos de lectura y escritura
         printf("DEBUG: %s: registering TLS TCP socket %p for read/write events\n", __FUNCTION__, s);
-        struct MyEvent *ev = my_event_new(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
+        struct MyEvent *ev = TRACE_EVENT_NEW(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
         if (my_event_add(ev, NULL) < 0) {
           TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: my_event_add failed for socket %p\n", __FUNCTION__, s);
           //return -1;
@@ -3801,7 +3802,7 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
 
                     // F-Stack: registra socket para eventos de lectura y escritura 
                     printf("DEBUG: %s: registering TLS socket %p for read/write events\n", __FUNCTION__, s);
-            struct MyEvent *ev = my_event_new(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
+            struct MyEvent *ev = TRACE_EVENT_NEW(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
             if (my_event_add(ev, NULL) < 0) {
               TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: my_event_add failed for socket %p\n", __FUNCTION__, s);
               //return -1;

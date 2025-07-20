@@ -1075,7 +1075,7 @@ static int start_client(const char *remote_address, int port, const unsigned cha
     event_add(ev, NULL);
     struct event *ev_rtcp = NULL;
   #else
-    struct MyEvent *ev = my_event_new(client_event_base, clnet_info->fd, EV_READ | EV_PERSIST, client_input_handler,ss);
+    struct MyEvent *ev = TRACE_EVENT_NEW(client_event_base, clnet_info->fd, EV_READ | EV_PERSIST, client_input_handler,ss);
     my_event_add(ev,NULL);
     struct MyEvent *ev_rtcp = NULL;
   #endif
@@ -1089,7 +1089,7 @@ static int start_client(const char *remote_address, int port, const unsigned cha
 
       event_add(ev_rtcp, NULL);
     #else
-      struct MyEvent *ev_rtcp = my_event_new(client_event_base, clnet_info_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler,ss_rtcp);
+      struct MyEvent *ev_rtcp = TRACE_EVENT_NEW(client_event_base, clnet_info_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler,ss_rtcp);
       my_event_add(ev_rtcp,NULL);
     #endif
 
@@ -1196,7 +1196,7 @@ static int start_c2c(const char *remote_address, int port, const unsigned char *
 
     struct event *ev1_rtcp = NULL;
   #else
-    struct MyEvent *ev1 = my_event_new(client_event_base, clnet_info1->fd, EV_READ | EV_PERSIST, client_input_handler,ss1);
+    struct MyEvent *ev1 = TRACE_EVENT_NEW(client_event_base, clnet_info1->fd, EV_READ | EV_PERSIST, client_input_handler,ss1);
     my_event_add(ev1,NULL);
     struct MyEvent *ev1_rtcp = NULL;
   #endif
@@ -1207,7 +1207,7 @@ static int start_c2c(const char *remote_address, int port, const unsigned char *
 
       event_add(ev1_rtcp, NULL);
     #else
-      ev1_rtcp = my_event_new(client_event_base, clnet_info1_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler,ss1_rtcp);
+      ev1_rtcp = TRACE_EVENT_NEW(client_event_base, clnet_info1_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler,ss1_rtcp);
       my_event_add(ev1_rtcp,NULL);
     #endif
   }
@@ -1218,7 +1218,7 @@ static int start_c2c(const char *remote_address, int port, const unsigned char *
 
       struct event *ev2_rtcp = NULL;
     #else
-      struct MyEvent *ev2= my_event_new(client_event_base, clnet_info2->fd, EV_READ | EV_PERSIST, client_input_handler,ss2);
+      struct MyEvent *ev2= TRACE_EVENT_NEW(client_event_base, clnet_info2->fd, EV_READ | EV_PERSIST, client_input_handler,ss2);
       my_event_add(ev2,NULL);
       
       struct MyEvent *ev2_rtcp = NULL;
@@ -1233,7 +1233,7 @@ static int start_c2c(const char *remote_address, int port, const unsigned char *
 
       event_add(ev2_rtcp, NULL);
     #else
-      ev2_rtcp = my_event_new(client_event_base, clnet_info2_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler,ss2_rtcp);
+      ev2_rtcp = TRACE_EVENT_NEW(client_event_base, clnet_info2_rtcp->fd, EV_READ | EV_PERSIST, client_input_handler,ss2_rtcp);
       my_event_add(ev2_rtcp,NULL);
     #endif
 
@@ -1545,7 +1545,7 @@ void start_mclient(const char *remote_address, int port, const unsigned char *if
 
     evtimer_add(ev, &tv);
   #else
-    struct MyEvent *ev = my_event_new(client_event_base, -1, EV_TIMEOUT | EV_PERSIST, timer_handler,NULL);
+    struct MyEvent *ev = TRACE_EVENT_NEW(client_event_base, -1, EV_TIMEOUT | EV_PERSIST, timer_handler,NULL);
   #endif
 
 
