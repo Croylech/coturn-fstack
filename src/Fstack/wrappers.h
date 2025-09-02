@@ -17,16 +17,16 @@
 #include <ff_api.h>
 #include <ff_epoll.h>
 #include <sys/ioctl.h>
+#include <rte_ethdev.h>
 
 
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+    //printf("DEBUG: registering callback %s at %p\n", #cb, (void*)(cb));
 #define TRACE_EVENT_NEW(base, fd, evs, cb, ctx)                        \
   ({                                                                  \
-    printf("DEBUG: registering callback %s at %p\n", #cb, (void*)(cb)); \
     my_event_new((base), (fd), (evs), (cb), (ctx));                    \
   })
 //forward declarationss
@@ -66,6 +66,7 @@ struct  MyEvent{
 struct MyEvConnListener;
 typedef void (*my_evconnlistener_cb)(struct MyEvConnListener *, int, struct sockaddr *, int socklen, void *);
 
+
 struct MyEvConnListener {
     struct MyEventBase *base;
     struct MyEvent *event;
@@ -83,6 +84,7 @@ typedef struct my_fifo my_fifo_t;
 typedef struct listener_fifo_t listener_fifo_t; // Define listener_fifo_t como alias
 
 typedef void (*listener_cb_t)(listener_fifo_t *lf, void *ctx);
+//typedef void (*listener_cb_t)(void *data, void *ctx);
 
 struct listener_fifo_t {
     my_fifo_t *fifo;
@@ -170,6 +172,7 @@ listener_fifo_t *create_listener_fifo(listener_cb_t cb, void *ctx);
 void process_registered_listener_fifos(void);
 void process_listener_fifo(listener_fifo_t *lf);
 void register_listener_fifo(listener_fifo_t *fifo);
+void log_dpdk_stats(uint16_t port_id);
 #ifdef __cplusplus
 }
 #endif

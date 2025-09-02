@@ -526,6 +526,8 @@ void send_auth_message_to_auth_server(struct auth_message *am) {
             fprintf(stderr, "%s: FIFO full, dropping message\n", __FUNCTION__);
             free(copy);
         }
+        //authserver[sn].out_buf->callback(copy, authserver[sn].out_buf->ctx);
+        //free(copy);
     } else {
         fprintf(stderr, "%s: out_buf is NULL for auth server %d\n", __FUNCTION__, (int)sn);
     }
@@ -533,7 +535,7 @@ void send_auth_message_to_auth_server(struct auth_message *am) {
 }
 
 #ifndef USE_FSTACK
-  static void auth_server_receive_message(struct bufferevent *bev, void *ptr) {
+  static void (struct bufferevent *bev, void *ptr) {
     printf("Entrando en %s\n", __FUNCTION__);
     UNUSED_ARG(ptr);
 
@@ -576,10 +578,11 @@ void send_auth_message_to_auth_server(struct auth_message *am) {
   }
 #else
 void auth_server_receive_message_from_fifo(listener_fifo_t *lf, void *ptr) {
+//void auth_server_receive_message_from_fifo(void* data, void *ptr) {
     UNUSED_ARG(ptr);
 
-    struct auth_message *am;
-
+    //struct auth_message *am = (struct auth_message *)data;ç
+    struct auth_message *am = NULL;
     while ((am = (struct auth_message *)my_fifo_pop(lf->fifo)) != NULL) {
         printf("AUTH: Recibido mensaje en auth_server_receive_message_from_fifo para usuario '%s', realm '%s'\n", am->username, am->realm);
 
@@ -587,33 +590,35 @@ void auth_server_receive_message_from_fifo(listener_fifo_t *lf, void *ptr) {
         //DEBUG: Verificar si el usuario está en static_accounts
         ur_string_map_value_type ukey = NULL;
 if (ur_string_map_get(turn_params.default_users_db.ram_db.static_accounts, (ur_string_map_key_type)am->username, &ukey)) {
-    printf("DEBUG: Usuario '%s' encontrado en static_accounts\n", am->username);
+    //printf("DEBUG: Usuario '%s' encontrado en static_accounts\n", am->username);
 } else {
-    printf("DEBUG: Usuario '%s' NO encontrado en static_accounts\n", am->username);
+    //printf("DEBUG: Usuario '%s' NO encontrado en static_accounts\n", am->username);
 }
-        printf("DEBUG: Esto se está lanzando?\n");
+        //printf("DEBUG: Esto se está lanzando?\n");
         int res = get_user_key(am->in_oauth, &(am->out_oauth), &(am->max_session_time),
                                am->username, am->realm, key, am->in_buffer.nbh);
         if (res < 0) {
             am->success = 0;
-            printf("AUTH: Falló autenticación para usuario '%s', realm '%s'\n", am->username, am->realm);
+            //printf("AUTH: Falló autenticación para usuario '%s', realm '%s'\n", am->username, am->realm);
         } else {
             memcpy(am->key, key, sizeof(hmackey_t));
             am->success = 1;
-            printf("AUTH: Autenticación exitosa para usuario '%s', realm '%s'\n", am->username, am->realm);
+            //printf("AUTH: Autenticación exitosa para usuario '%s', realm '%s'\n", am->username, am->realm);
         }
 
         struct relay_server *relay_server = get_relay_server(am->id);
         if (relay_server && relay_server->auth_out_buf) {
-            printf("DEBUG: relay_server_id=%d, auth_out_buf=%p\n", (int)relay_server->id, (void*)relay_server->auth_out_buf);
+            //printf("DEBUG: relay_server_id=%d, auth_out_buf=%p\n", (int)relay_server->id, (void*)relay_server->auth_out_buf->fifo);
             struct auth_message *copy = malloc(sizeof(*copy));
             if (copy) {
                 memcpy(copy, am, sizeof(*am));
-                printf("AUTH: Enviando respuesta de autenticación a relay_server %d\n", (int)am->id);
+                printf("AUTH: Enviando respuesta de autenticación a relay_server %d del usuario '%s'\n", (int)am->id, am->username);
                 if(my_fifo_push(relay_server->auth_out_buf->fifo, copy) < 0) {
                     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
                     free(copy);
                 }
+                //relay_server->auth_out_buf->callback(copy, relay_server->auth_out_buf->ctx);
+                //free(copy);
             }
         } else {
             TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: can't find relay for turn_server_id: %d\n", __FUNCTION__, (int)am->id);
@@ -628,7 +633,7 @@ if (ur_string_map_get(turn_params.default_users_db.ram_db.static_accounts, (ur_s
 
 static int send_socket_to_general_relay(ioa_engine_handle e, struct message_to_relay *sm) {
   struct relay_server *rdest = sm->relay_server;
-  printf("LOG: %s: Sending socket to general relay server\n", __FUNCTION__);
+  //printf("LOG: %s: Sending socket to general relay server\n", __FUNCTION__);
   if (!rdest) {
     size_t dest = (hash_int32(addr_get_port(&(sm->m.sm.nd.src_addr)))) % get_real_general_relay_servers_number();
     rdest = general_relay_servers[dest];
@@ -652,17 +657,19 @@ static int send_socket_to_general_relay(ioa_engine_handle e, struct message_to_r
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Cannot add message to relay output buffer\n", __FUNCTION__);
     } else {
       success = 1;
-      printf("LOG: %s: Message added to relay output buffer\n", __FUNCTION__);
+      //printf("LOG: %s: Message added to relay output buffer\n", __FUNCTION__);
       smptr->m.sm.nd.nbh = NULL;
     }
   }
 #else
   if (rdest->out_buf) {
-    struct message_to_relay *copy = malloc(sizeof(*copy));
+    struct message_to_relay *copy = malloc(sizeof(struct message_to_relay));
     if (!copy) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Failed to allocate message copy\n", __FUNCTION__);
     } else {
       memcpy(copy, smptr, sizeof(*copy));
+      //printf("DEBUG: Mandando socket %d a relay server %d\n",
+            //  (int)copy->m.sm.s, (int)rdest->id);
       if (my_fifo_push(rdest->out_buf->fifo, copy) < 0) {
         TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
         free(copy);
@@ -670,6 +677,10 @@ static int send_socket_to_general_relay(ioa_engine_handle e, struct message_to_r
         success = 1;
         smptr->m.sm.nd.nbh = NULL;
       }
+      // rdest->out_buf->callback(copy, rdest->out_buf->ctx);
+      // success = 1;
+      // smptr->m.sm.nd.nbh = NULL;
+      //printf("LOG: %s: Message added to relay output buffer\n", __FUNCTION__);
     }
   }
 #endif
@@ -764,12 +775,17 @@ static int send_socket_to_relay(turnserver_id id, uint64_t cid, stun_tid *tid, i
         s_to_delete = s;
       } else {
         memcpy(copy, &sm, sizeof(*copy));
+        //printf("DEBUG: Mandando socket %d a relay server %d \n",
+              //  (int)copy->m.sm.s, (int)rs->id);
         if (my_fifo_push(rs->out_buf->fifo, copy) < 0) {
           TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
           free(copy);
           ret = -1;
           s_to_delete = s;
         }
+        //rs->out_buf->callback(copy, rs->out_buf->ctx);
+        //free(copy);
+        //printf("LOG: %s: Message added to relay output buffer\n", __FUNCTION__);
       }
     } else {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: out_buf is NULL for relay\n", __FUNCTION__);
@@ -836,11 +852,15 @@ int send_session_cancellation_to_relay(turnsession_id sid) {
       ret = -1;
     } else {
       memcpy(copy, &sm, sizeof(*copy));
+      //printf("DEBUG: Mandando cancelación de sesión %llu a relay server %d\n", (unsigned long long)sid, (int)rs->id);
       if (my_fifo_push(rs->out_buf->fifo, copy) < 0) {
         TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
         free(copy);
         ret = -1;
       }
+      //rs->out_buf->callback(copy, rs->out_buf->ctx);
+      //free(copy);
+      //printf("LOG: %s: Message added to relay output buffer\n", __FUNCTION__);
     }
   } else {
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: out_buf is NULL for relay\n", __FUNCTION__);
@@ -853,6 +873,7 @@ err:
 }
 
 static int handle_relay_message(relay_server_handle rs, struct message_to_relay *sm) {
+  printf("Entrando en %s\n",__FUNCTION__);
   if (rs && sm) {
 
     switch (sm->t) {
@@ -937,7 +958,7 @@ static int handle_relay_message(relay_server_handle rs, struct message_to_relay 
     }
     }
   }else{
-    printf("DEBUG: No se recibió un mensaje de relay\n");
+    //printf("DEBUG: No se recibió un mensaje de relay\n");
   }
 
   return 0;
@@ -987,10 +1008,11 @@ static void handle_relay_auth_message(struct relay_server *rs, struct auth_messa
   }
 #else
   void relay_receive_message_from_fifo(listener_fifo_t *lf, void *ptr) {
-    printf("LOG: %s: relay_receive_message_from_fifo\n", __FUNCTION__);
+  //void relay_receive_message_from_fifo(void *data, void *ptr) {
+    //printf("LOG: %s: relay_receive_message_from_fifo\n", __FUNCTION__);
     struct relay_server *rs = (struct relay_server *)ptr;
     struct message_to_relay *sm;
-
+    //struct message_to_relay *sm = (struct message_to_relay *)data;
     while ((sm = (struct message_to_relay *)my_fifo_pop(lf->fifo)) != NULL) {
       handle_relay_message(rs, sm);
       free(sm);  // muy importante
@@ -998,9 +1020,11 @@ static void handle_relay_auth_message(struct relay_server *rs, struct auth_messa
   }
 
 void relay_receive_auth_message_from_fifo(listener_fifo_t *lf, void *ptr) {
-    printf("LOG: %s: Mensaje recibido\n",__FUNCTION__);
+//void relay_receive_auth_message_from_fifo(void *data, void *ptr) {
+    //printf("LOG: %s: Mensaje recibido\n",__FUNCTION__);
     struct relay_server *rs = (struct relay_server *)ptr;
-    struct auth_message *am;
+    //struct auth_message *am = (struct auth_message *)data;
+    struct auth_message *am = NULL;
 
     while ((am = (struct auth_message *)my_fifo_pop(lf->fifo)) != NULL) {
         printf("AUTH: relay_receive_auth_message_from_fifo para usuario '%s', realm '%s', success=%d\n", am->username, am->realm, am->success);
@@ -1042,6 +1066,9 @@ static int send_message_from_listener_to_client(ioa_engine_handle e, ioa_network
         TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping message\n", __FUNCTION__);
         free(copy);
       }
+      //turn_params.listener.out_buf->callback(copy, turn_params.listener.out_buf->ctx);
+      //free(copy);
+      //printf("LOG: %s: Message added to listener output buffer\n", __FUNCTION__);
     }
   } else {
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: listener.out_buf is NULL\n", __FUNCTION__);
@@ -1058,10 +1085,12 @@ static void listener_receive_message(
     listener_fifo_t *lf,
 #endif
     void *ptr) {
+//static void listener_receive_message( void *data, void *ptr) {
 
   UNUSED_ARG(ptr);
 
   struct message_to_listener mm;
+  //struct message_to_listener mm = *(struct message_to_listener *)data;
   int n = 0;
 
 #ifndef USE_FSTACK
@@ -1081,7 +1110,7 @@ static void listener_receive_message(
 
     if (mm.t != LMT_TO_CLIENT) {
       perror("Weird buffer type\n");
-      continue;
+      //continue;
     }
 
     size_t relay_thread_index = 0;
@@ -1230,9 +1259,12 @@ static void setup_listener(void) {
       bufferevent_enable(turn_params.listener.in_buf, EV_READ);
     #else
       listener_fifo_t *lf = create_listener_fifo(listener_receive_message, &turn_params.listener);
+
+      //printf("DEBUG: Fifo %p creada en la función %s con callback listener_receive_message: %p\n", lf, __FUNCTION__, (void*)listener_receive_message);
       register_listener_fifo(lf);
       turn_params.listener.in_buf = lf;
       turn_params.listener.out_buf = lf;
+
     #endif
   }
 
@@ -1915,14 +1947,16 @@ static void setup_relay_server(struct relay_server *rs, ioa_engine_handle e, int
     bufferevent_enable(rs->auth_in_buf, EV_READ);
   #else
     listener_fifo_t *lf = create_listener_fifo(relay_receive_message_from_fifo, rs);
+    //printf("DEBUG: Fifo %p creada en la función %s con callback relay_receive_message_from_fifo: %p\n", lf, __FUNCTION__, (void*)relay_receive_message_from_fifo);
     register_listener_fifo(lf);
     rs->in_buf = lf;
     rs->out_buf = lf;
 
-    lf = create_listener_fifo(relay_receive_auth_message_from_fifo, rs);
-    register_listener_fifo(lf);
-    rs->auth_in_buf = lf;
-    rs->auth_out_buf = lf;
+    listener_fifo_t *lf_auth = create_listener_fifo(relay_receive_auth_message_from_fifo, rs);
+    //printf("DEBUG: Fifo %p creada en la función %s con callback relay_receive_auth_message_from_fifo: %p\n", lf_auth, __FUNCTION__, (void*)relay_receive_auth_message_from_fifo);
+    register_listener_fifo(lf_auth);
+    rs->auth_in_buf = lf_auth;
+    rs->auth_out_buf = lf_auth;
   #endif
 
   init_turn_server(
@@ -2079,6 +2113,7 @@ static void *run_auth_server_thread(void *arg) {
       bufferevent_enable(as->in_buf, EV_READ);
     #else
       listener_fifo_t *lf = create_listener_fifo(auth_server_receive_message_from_fifo, as);
+      //printf("DEBUG: Fifo %p creada en la función %s con callback auth_server_receive_message_from_fifo: %p\n", lf, __FUNCTION__, (void*)auth_server_receive_message_from_fifo);
       register_listener_fifo(lf);
       as->in_buf = lf;
       as->out_buf = lf;
@@ -2107,6 +2142,7 @@ void setup_auth_servers_fstack(void) {
         //authserver[sn].event_base = my_event_base_new();  
         authserver[sn].event_base = turn_params.listener.event_base; // usar el mismo event_base que el listener
         listener_fifo_t *lf = create_listener_fifo(auth_server_receive_message_from_fifo, &authserver[sn]);
+        //printf("DEBUG: Fifo %p creada en la función %s con callback auth_server_receive_message_from_fifo: %p\n", lf, __FUNCTION__, (void*)auth_server_receive_message_from_fifo);
         register_listener_fifo(lf);
         authserver[sn].in_buf = lf;
         authserver[sn].out_buf = lf;
@@ -2174,7 +2210,7 @@ void setup_server(void) {
 #if defined(WINDOWS)
   evthread_use_windows_threads();
 #else
-  //evthread_use_pthreads(); //esto no se si se ejecuta, pero creo que no porque no estoy usando libevent
+  evthread_use_pthreads(); //esto no se si se ejecuta, pero creo que no porque no estoy usando libevent
 #endif
 
   TURN_MUTEX_INIT(&mutex_bps);

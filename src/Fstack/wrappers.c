@@ -129,13 +129,13 @@ int my_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
 // Envío y recepción
 ssize_t my_recvfrom(int sockfd, void *buf, size_t len, int flags,
                     struct sockaddr *src_addr, socklen_t *addrlen) {
-    printf("LOG: my_recvfrom called fd=%d len=%zu flags=%x\n", sockfd, len, flags);
+   // printf("LOG: my_recvfrom called fd=%d len=%zu flags=%x\n", sockfd, len, flags);
 #ifdef USE_FSTACK
     ssize_t ret = ff_recvfrom(sockfd, buf, len, flags, (struct linux_sockaddr *)src_addr, addrlen);
 #else
     ssize_t ret = recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
 #endif
-    printf("LOG: my_recvfrom fd=%d returned ret=%zd\n", sockfd, ret);
+    //printf("LOG: my_recvfrom fd=%d returned ret=%zd\n", sockfd, ret);
     return ret;
 }
 
@@ -149,9 +149,9 @@ ssize_t my_sendto(int sockfd, const void *buf, size_t len, int flags,
 }
 
 ssize_t my_recv(int sockfd, void *buf, size_t len, int flags) {
-    printf("LOG: my_recv called fd=%d len=%zu flags=%x\n", sockfd, len, flags);
+    //printf("LOG: my_recv called fd=%d len=%zu flags=%x\n", sockfd, len, flags);
     ssize_t ret = recv_fn(sockfd, buf, len, flags);
-    printf("LOG: my_recv fd=%d returned ret=%zd\n", sockfd, ret);
+    //printf("LOG: my_recv fd=%d returned ret=%zd\n", sockfd, ret);
     return ret;
 }
 
@@ -173,7 +173,10 @@ ssize_t my_recvmsg(int sockfd, struct msghdr *msg, int flags){
         //}
         //printf("\n");
     //}
-
+   if (ret < 0) {
+        //perror("my_recvmsg error");
+        //printf("my_recvmsg fd=%d errno=%d (%s)\n", sockfd, errno, strerror(errno));
+    }
     return ret;
 }
 
@@ -209,7 +212,7 @@ int my_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeo
 //events
 
 struct MyEventBase* my_event_base_new() {
-    printf("LOG: my_event_base_new called\n");
+   // printf("LOG: my_event_base_new called\n");
     struct MyEventBase *base = malloc(sizeof(struct MyEventBase));
     if (!base)
         return NULL;
@@ -224,7 +227,7 @@ struct MyEventBase* my_event_base_new() {
 }
 
 struct MyEvent* my_event_new(struct MyEventBase *base, int fd, int events, void (*cb)(int, short, void*), void *arg) {
-    printf("LOG: my_event_new called for fd=%d events=%x\n", fd, events);
+    //printf("LOG: my_event_new called for fd=%d events=%x\n", fd, events);
     struct MyEvent *ev = malloc(sizeof(struct MyEvent));
     if (ev == NULL) {
         printf("ERROR: my_event_new malloc failed for fd=%d\n", fd);
@@ -237,12 +240,12 @@ struct MyEvent* my_event_new(struct MyEventBase *base, int fd, int events, void 
     ev->events = events;
     ev->fd = fd;
 
-    printf("LOG: my_event_new created event struct for fd=%d\n", fd);
+    //printf("LOG: my_event_new created event struct for fd=%d\n", fd);
     return ev;
 }
 
 int my_event_add(struct MyEvent *ev,const struct timeval *tv){
-    printf("LOG: my_event_add called for fd=%d events=%x\n", ev->fd, ev->events);
+    //printf("LOG: my_event_add called for fd=%d events=%x\n", ev->fd, ev->events);
 
     struct epoll_event epev = {0};
     if (ev->events & EV_READ)  epev.events |= EPOLLIN;
@@ -250,31 +253,49 @@ int my_event_add(struct MyEvent *ev,const struct timeval *tv){
     if (!(ev->events & EV_PERSIST)) epev.events |= EPOLLONESHOT;
     epev.data.ptr = ev;
     int ret = ff_epoll_ctl(ev->base->epfd, EPOLL_CTL_ADD, ev->fd, &epev);
-    printf("LOG: ff_epoll_ctl ADD fd=%d events=%x ret=%d\n", ev->fd, epev.events, ret);
+    //printf("LOG: ff_epoll_ctl ADD fd=%d events=%x ret=%d\n", ev->fd, epev.events, ret);
     return ret;
+}
+void log_dpdk_stats(uint16_t port_id) {
+    struct rte_eth_stats stats;
+    if (rte_eth_stats_get(port_id, &stats) == 0) {
+        printf("[DPDK Stats] Port %u | RX: %" PRIu64 " | TX: %" PRIu64 " | RX-dropped: %" PRIu64 " | TX-dropped: %" PRIu64 " | RX-errors: %" PRIu64 "\n",
+               port_id,
+               stats.ipackets,
+               stats.opackets,
+               stats.imissed,
+               stats.oerrors,
+               stats.ierrors);
+    } else {
+        printf("[DPDK Stats] Failed to get stats for port %u\n", port_id);
+    }
 }
 
 void my_event_loop(struct MyEventBase *base, int timeout_ms) {
     //printf("LOG: my_event_loop started with timeout_ms=%d\n", timeout_ms);
-    struct epoll_event events[64];
-    //uint64_t hz = rte_get_timer_hz();  // ciclos por segundo
-    //uint64_t timeout_cycles = ((uint64_t)timeout_ms * hz) / 1000;
-    //uint64_t deadline = rte_get_timer_cycles() + timeout_cycles;
-
-    
-    int n = ff_epoll_wait(base->epfd, events, 64, 0);
-    if(n != 0){
-        printf("LOG: ff_epoll_wait returned n=%d\n", n);
+    struct epoll_event events[128];
+    uint64_t hz = rte_get_timer_hz();  // ciclos por segundo
+    uint64_t timeout_cycles = ((uint64_t)1000 * hz) / 1000;
+    uint64_t deadline = rte_get_timer_cycles() + timeout_cycles;
+    if(rte_get_timer_cycles() > deadline){
+        printf("LOG: my_event_loop: deadline exceeded, skipping this iteration\n");
+        log_dpdk_stats(0);
     }
+    
+    int n = ff_epoll_wait(base->epfd, events, 128, 0);
+    if(n != 0){
+        //printf("LOG: ff_epoll_wait returned n=%d\n", n);
+    }
+    
     //printf("LOG: ff_epoll_wait returned n=%d\n", n);
     if (n < 0) {
         printf("ERROR: ff_epoll_wait error n=%d\n", n);
         return;
     }
-
+    
     for (int i = 0; i < n; ++i) {
         struct MyEvent *ev = (struct MyEvent *)events[i].data.ptr;
-        printf("LOG: Event received for fd=%d events=%x\n", ev ? ev->fd : -1, events[i].events);
+       // printf("LOG: Event received for fd=%d events=%x\n", ev ? ev->fd : -1, events[i].events);
         if (!ev || !ev->callback) {
             printf("WARN: Event with NULL ev or callback\n");
             continue;
@@ -285,13 +306,15 @@ void my_event_loop(struct MyEventBase *base, int timeout_ms) {
         if (events[i].events & EPOLLOUT) revents |= EV_WRITE;
         if (events[i].events & (EPOLLERR | EPOLLHUP)) revents |= EV_CLOSED;
 
-        printf("LOG: Calling callback for fd=%d revents=%x\n", ev->fd, revents);
+        //printf("LOG: Calling callback for fd=%d revents=%x\n", ev->fd, revents);
 
         ev->callback(ev->fd, revents, ev->arg);
-    
-        process_registered_listener_fifos();
+       
         //ff_swi_net_excute();
+        //process_registered_listener_fifos();
     }
+    process_registered_listener_fifos();
+     
 }
 
 void my_event_free(struct MyEvent *ev){
@@ -582,7 +605,7 @@ void my_event_disable_read(ioa_socket_handle s) {
   s->read_enabled = 0;
 
   int ret = ff_epoll_ctl(eb->epfd, EPOLL_CTL_MOD, s->fd, &ev);
-  printf("LOG: my_event_disable_read fd=%d ret=%d\n", s->fd, ret);
+ // printf("LOG: my_event_disable_read fd=%d ret=%d\n", s->fd, ret);
 }
 
 void my_event_enable_read(ioa_socket_handle s){
@@ -596,5 +619,5 @@ void my_event_enable_read(ioa_socket_handle s){
     struct MyEventBase *eb = s->e->event_base;
     s->read_enabled = 1;
     int ret = ff_epoll_ctl(eb->epfd, EPOLL_CTL_MOD,s->fd, &ev);
-    printf("LOG: my_event_enable_read fd=%d ret=%d\n", s->fd, ret);
+    //printf("LOG: my_event_enable_read fd=%d ret=%d\n", s->fd, ret);
 }

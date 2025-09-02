@@ -990,7 +990,7 @@ static int handle_turn_allocate(turn_turnserver *server, ts_ur_super_session *ss
       *err_code = 437;
       *reason = (const uint8_t *)"Wrong TID";
     } else {
-      size_t len = ioa_network_buffer_get_size(nbh);
+      size_t len = ioa_network_buffer_get_size(nbh);//0?
       ioa_addr xor_relayed_addr1, *pxor_relayed_addr1 = NULL;
       ioa_addr xor_relayed_addr2, *pxor_relayed_addr2 = NULL;
       ioa_addr *relayed_addr1 = get_local_addr_from_ioa_socket(get_relay_socket_ss(ss, AF_INET));
@@ -2581,7 +2581,7 @@ static int handle_turn_channel_bind(turn_turnserver *server, ts_ur_super_session
                                     ioa_network_buffer_handle nbh) {
 
   FUNCSTART;
-  printf("DEBUG: ENTRO A HANDLE TURN CHANNEL BIND\n");
+  //printf("DEBUG: ENTRO A HANDLE TURN CHANNEL BIND\n");
   uint16_t chnum = 0;
   ioa_addr peer_addr;
   addr_set_any(&peer_addr);
@@ -3313,7 +3313,7 @@ static int check_stun_auth(turn_turnserver *server, ts_ur_super_session *ss, stu
     size_t buf_size = ioa_network_buffer_get_size(in_buffer->nbh);
   uint8_t *buf_data = ioa_network_buffer_data(in_buffer->nbh);
 
-  printf("DEBUG: STUN buffer size=%zu\n", buf_size);
+  //printf("DEBUG: STUN buffer size=%zu\n", buf_size);
   for (size_t i = 0; i < buf_size; ++i) {
       printf("%02x ", buf_data[i]);
       if ((i+1) % 16 == 0) printf("\n");
@@ -3328,9 +3328,9 @@ static int check_stun_auth(turn_turnserver *server, ts_ur_super_session *ss, stu
   if (sar) {
     int uname_len = stun_attr_get_len(sar);
     const uint8_t *uname_val = stun_attr_get_value(sar);
-    printf("DEBUG: Integridad de mensaje encontrado, len=%d, valor='%.*s'\n", uname_len, uname_len, uname_val);
+    //printf("DEBUG: Integridad de mensaje encontrado, len=%d, valor='%.*s'\n", uname_len, uname_len, uname_val);
 } else {
-    printf("DEBUG: Integridad de mensaje NO encontrado en el paquete STUN\n");
+   //printf("DEBUG: Integridad de mensaje NO encontrado en el paquete STUN\n");
 }                                    
   if (!sar) {
     *err_code = 401;
@@ -3406,9 +3406,9 @@ static int check_stun_auth(turn_turnserver *server, ts_ur_super_session *ss, stu
   if (sar) {
     int uname_len = stun_attr_get_len(sar);
     const uint8_t *uname_val = stun_attr_get_value(sar);
-    printf("DEBUG: USERNAME encontrado, len=%d, valor='%.*s'\n", uname_len, uname_len, uname_val);
+    //printf("DEBUG: USERNAME encontrado, len=%d, valor='%.*s'\n", uname_len, uname_len, uname_val);
 } else {
-    printf("DEBUG: USERNAME NO encontrado en el paquete STUN\n");
+    //printf("DEBUG: USERNAME NO encontrado en el paquete STUN\n");
 }                                      
 //FIN DEBUG
   if (!sar) {
@@ -4481,10 +4481,10 @@ static int refresh_relay_connection(turn_turnserver *server, ts_ur_super_session
 static int read_client_connection(turn_turnserver *server, ts_ur_super_session *ss, ioa_net_data *in_buffer,
                                   int can_resume, int count_usage) {
   FUNCSTART;
-  printf("DEBUG: read_client_connection: session_id=%llu fd=%d len=%zu\n",
-       ss ? (unsigned long long)ss->id : 0,
-       ss && ss->client_socket ? ss->client_socket->fd : -1,
-       in_buffer && in_buffer->nbh ? ioa_network_buffer_get_size(in_buffer->nbh) : 0);
+  //printf("DEBUG: read_client_connection: session_id=%llu fd=%d len=%zu\n",
+      //  ss ? (unsigned long long)ss->id : 0,
+      //  ss && ss->client_socket ? ss->client_socket->fd : -1,
+      //  in_buffer && in_buffer->nbh ? ioa_network_buffer_get_size(in_buffer->nbh) : 0);
   if (!server || !ss || !in_buffer || !(ss->client_socket) || ss->to_be_closed ||
       ioa_socket_tobeclosed(ss->client_socket)) {
     FUNCEND;
@@ -4557,7 +4557,7 @@ static int read_client_connection(turn_turnserver *server, ts_ur_super_session *
                                                     ioa_network_buffer_get_size(in_buffer->nbh), 0,
                                                     &(ss->enforce_fingerprints))) {
 
-    printf("DEBUG: Estamos siendo manejados correctamente?\n");
+    //printf("DEBUG: Estamos siendo manejados correctamente?\n");
     ioa_network_buffer_handle nbh = ioa_network_buffer_allocate(server->e);
     int resp_constructed = 0;
 
@@ -4715,7 +4715,7 @@ static int attach_socket_to_session(turn_turnserver *server, ioa_socket_handle s
       if (register_callback_on_ioa_socket(server->e, s, IOA_EV_READ, client_input_handler, ss, 0) < 0) {
         return -1;
       }else{
-        printf("LOG: register_callback_on_ioa_socket OK\n");
+        //printf("LOG: register_callback_on_ioa_socket OK\n");
       }
 
       set_ioa_socket_session(s, ss);
@@ -4729,7 +4729,7 @@ static int attach_socket_to_session(turn_turnserver *server, ioa_socket_handle s
 }
 
 int open_client_connection_session(turn_turnserver *server, struct socket_message *sm) {
-  printf("LOG: Entrando en open_client_connection_session\n");
+  //printf("LOG: Entrando en open_client_connection_session\n");
   int ret = 0;
   FUNCSTART;
   if (!server) {
@@ -4747,7 +4747,7 @@ int open_client_connection_session(turn_turnserver *server, struct socket_messag
   if (register_callback_on_ioa_socket(server->e, ss->client_socket, IOA_EV_READ, client_input_handler, ss, 0) < 0) {
     ret = -1;
   }else{
-    printf("LOG: register_callback_on_ioa_socket 2 OK\n");
+    //printf("LOG: register_callback_on_ioa_socket 2 OK\n");
   }
 
   set_ioa_socket_session(ss->client_socket, ss);
@@ -4776,7 +4776,7 @@ int open_client_connection_session(turn_turnserver *server, struct socket_messag
 
 static void peer_input_handler(ioa_socket_handle s, int event_type, ioa_net_data *in_buffer, void *arg,
                                int can_resume) {
-  printf("Entrando a peer_input_handler\n");                              
+  //printf("Entrando a peer_input_handler\n");                              
   if (!(event_type & IOA_EV_READ) || !arg) {
     return;
   }
@@ -4893,7 +4893,7 @@ static void peer_input_handler(ioa_socket_handle s, int event_type, ioa_net_data
 
 static void client_input_handler(ioa_socket_handle s, int event_type, ioa_net_data *data, void *arg, int can_resume) {
 
-  printf("DEBUG: Entrando en client_input_handler\n");
+  //printf("DEBUG: Entrando en client_input_handler\n");
   if (!arg) {
     return;
   }

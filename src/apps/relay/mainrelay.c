@@ -2952,26 +2952,11 @@ static void init_domain(void) {
 }
 
 #ifdef USE_FSTACK
-struct FStackRunContext {
-  turn_params_t *params;
-};
+// struct FStackRunContext {
+//   turn_params_t *params;
+// };
 
-static int fstack_main_loop(void *arg) {
-  struct FStackRunContext *ctx = (struct FStackRunContext *)arg;
-  // const char *ptype = ctx->cfg->dpdk.proc_type;
-  // int pid = ctx->cfg->dpdk.proc_id;
-  // if(!strcmp(ptype, "primary") && pid == 0){
-   // setup_server();
-  // }else if (!strcmp(ptype, "secondary") && pid == 1){
-  //   //revisando actualmente
-  // // drop_privileges();// no revisado
-  // // start_prometheus_server();// no revisado
-  
-  run_listener_server(&(ctx->params->listener));// no revisado (aquí es donde muere actualmente)
-  // }
- 
-  return 0;
-}
+static int fstack_main_loop(void *arg) ;
 #endif
 
 
@@ -3412,9 +3397,9 @@ int main(int argc, char **argv) {
   start_prometheus_server();
 //#endif
 #ifdef USE_FSTACK
-struct FStackRunContext ctx = { .params = &turn_params };
+//struct FStackRunContext ctx = { .params = &turn_params };
 TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "F-stack-j: Run events listener arrancado\n");
-ff_run(fstack_main_loop, &ctx);
+ff_run(fstack_main_loop, NULL);
 
 // rte_eal_remote_launch((lcore_function_t *)setup_server, &ls, 2);
 // rte_eal_remote_launch((lcore_function_t *)run_listener_server, NULL, 3);
@@ -3426,6 +3411,22 @@ ff_run(fstack_main_loop, &ctx);
 #endif
   disconnect_database();
 
+  return 0;
+}
+static int fstack_main_loop(void *arg) {
+  //struct FStackRunContext *ctx = (struct FStackRunContext *)arg;
+  // const char *ptype = ctx->cfg->dpdk.proc_type;
+  // int pid = ctx->cfg->dpdk.proc_id;
+  // if(!strcmp(ptype, "primary") && pid == 0){
+   // setup_server();
+  // }else if (!strcmp(ptype, "secondary") && pid == 1){
+  //   //revisando actualmente
+  // // drop_privileges();// no revisado
+  // // start_prometheus_server();// no revisado
+  
+  run_listener_server(&(turn_params.listener));// no revisado (aquí es donde muere actualmente)
+  // }
+ 
   return 0;
 }
 

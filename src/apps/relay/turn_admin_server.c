@@ -1361,6 +1361,7 @@ void setup_admin_thread(void) {
     bufferevent_enable(adminserver.in_buf, EV_READ);
     #else
     listener_fifo_t *lf = create_listener_fifo(admin_server_receive_message, &adminserver);
+    //printf("DEBUG: Fifo %p creada en la función %s con callback admin_server_receive_message: %p\n", lf, __FUNCTION__, (void*)admin_server_receive_message);
     register_listener_fifo(lf);
     adminserver.in_buf = lf;
     adminserver.out_buf = lf;
@@ -1379,6 +1380,7 @@ void setup_admin_thread(void) {
     bufferevent_enable(adminserver.https_in_buf, EV_READ);
     #else
     listener_fifo_t *lf = create_listener_fifo(https_admin_server_receive_message, &adminserver);
+    //printf("DEBUG: Fifo %p creada en la función %s con callback https_admin_server_receive_message: %p\n", lf, __FUNCTION__, (void*)https_admin_server_receive_message);
     register_listener_fifo(lf);
     adminserver.https_in_buf = lf;
     adminserver.https_out_buf = lf;
@@ -1466,9 +1468,12 @@ void admin_server_receive_message(
   #endif
     void *ptr)
 {
+//void admin_server_receive_message( void *data, void *ptr){
   printf("Entrando en %s \n", __FUNCTION__);
     UNUSED_ARG(ptr);
-
+    
+    //struct turn_session_info *tsi = (struct turn_session_info *)data;
+    struct turn_session_info *tsi = NULL;
     #ifndef USE_FSTACK
       struct evbuffer *input = bufferevent_get_input(bev);
       struct turn_session_info tsi_buf;
@@ -1539,6 +1544,7 @@ int send_turn_session_info(struct turn_session_info *tsi) {
                           __FUNCTION__);
         } else {
             memcpy(copy, tsi, sizeof(*tsi));
+            //printf("DEBUG: Mandando copia de session a turn del usuario %s\n", copy->username);
             if (my_fifo_push(adminserver.out_buf->fifo, copy) < 0) {
                 TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR,
                               "%s: FIFO full, dropping session info\n",
@@ -1547,6 +1553,9 @@ int send_turn_session_info(struct turn_session_info *tsi) {
             } else {
                 ret = 0;
             }
+            // adminserver.out_buf->callback(copy, adminserver.out_buf->ctx);
+            // ret = 0;
+            //free(copy);
         }
     }
 #endif
@@ -2311,10 +2320,6 @@ static void write_pc_page(ioa_socket_handle s) {
 
         https_print_empty_row(sb, 2);
 
-        https_print_uint(sb, (unsigned long)rp->status.total_current_allocs, "total-current-allocs", 0);
-
-        https_print_empty_row(sb, 2);
-
         https_print_uint(sb, (unsigned long)turn_params.total_quota, "Default total-quota (per realm)", "total-quota");
         https_print_uint(sb, (unsigned long)turn_params.user_quota, "Default user-quota (per realm)", "user-quota");
         https_print_uint(sb, (unsigned long)get_bps_capacity(), "Total bps-capacity (per server)", "bps-capacity");
@@ -2578,9 +2583,7 @@ static void write_ps_page(ioa_socket_handle s, const char *client_protocol, cons
       str_buffer_append(sb, "</form>\r\n");
 
       str_buffer_append(sb, "<br><b>TURN Sessions:</b><br><br><table>\r\n");
-      str_buffer_append(
-          sb,
-          "<tr><th>N</th><th>Session ID</th><th>User</th><th>Realm</th><th>Origin</th><th>Age, secs</th><th>Expires, "
+      str_buffer_append(sb, "<tr><th>N</th><th>Session ID</th><th>User</th><th>Realm</th><th>Origin</th><th>Age, secs</th><th>Expires, "
           "secs</th><th>Client protocol</th><th>Relay protocol</th><th>Client addr</th><th>Server addr</th><th>Relay "
           "addr (IPv4)</th><th>Relay addr (IPv6)</th><th>Fingerprints</th><th>Mobile</th><th>TLS method</th><th>TLS "
           "cipher</th><th>BPS (allocated)</th><th>Packets</th><th>Rate</th><th>Peers</th></tr>\r\n");
@@ -3465,6 +3468,7 @@ static void handle_https(ioa_socket_handle s, ioa_network_buffer_handle nbh) {
         break;
       }
       case AS_FORM_PS: {
+       
         if (is_as_ok(s)) {
           const char *realm0 = get_http_header_value(hr, HR_REALM, current_realm());
           if (!is_superuser()) {
@@ -3903,6 +3907,7 @@ void https_admin_server_receive_message(
 #endif
     void *ptr)
 {
+//void https_admin_server_receive_message(void *data, void *ptr){
   printf("Entrando en %s\n",__FUNCTION__);
     UNUSED_ARG(ptr);
 
@@ -3923,10 +3928,11 @@ void https_admin_server_receive_message(
         handle_https(s, NULL);
     }
 #else
-    void *item = NULL;
+    //ioa_socket_handle s = *(ioa_socket_handle *)data;
+    ioa_socket_handle item = NULL;
     while ((item = my_fifo_pop(lf->fifo)) != NULL) {
-        ioa_socket_handle s = *(ioa_socket_handle *)item;
-        free(item);
+        ioa_socket_handle s = item;
+        //free(item);
         register_callback_on_ioa_socket(adminserver.e, s,
                                         IOA_EV_READ,
                                         https_input_handler,
@@ -3947,23 +3953,13 @@ void send_https_socket(ioa_socket_handle s) {
 #else
     listener_fifo_t *fifo = adminserver.https_out_buf;
     if (fifo) {
-        // Hacemos una copia dinámica del socket handle
-        ioa_socket_handle *copy = malloc(sizeof(*copy));
-        if (!copy) {
-            TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Failed to allocate memory for HTTPS socket\n",
-                          __FUNCTION__);
-        } else {
-            *copy = s;
-            // Intentamos encolar; si falla, liberamos y lo reportamos
-            if (my_fifo_push(fifo->fifo, copy) < 0) {
-                TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping HTTPS socket\n",
-                              __FUNCTION__);
-                free(copy);
-            }
+        if (my_fifo_push(fifo->fifo, s) < 0) {
+            TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: FIFO full, dropping HTTPS socket\n", __FUNCTION__);
+            // Si es necesario, cierra el socket aquí
+            IOA_CLOSE_SOCKET(s);
         }
     }
 #endif
 }
-
 
 ///////////////////////////////

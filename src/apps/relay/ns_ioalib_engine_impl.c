@@ -679,7 +679,9 @@ void stop_ioa_timer(ioa_timer_handle th) {
   if (th) {
     timer_event *te = (timer_event *)th;
 #ifdef USE_FSTACK
-    rte_timer_stop(&te->dpdk_timer);
+    if (rte_timer_stop(&te->dpdk_timer) != 0) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Failed to stop DPDK timer\n");
+    }
 #else
     EVENT_DEL(te->ev);
 #endif
@@ -718,6 +720,8 @@ int ioa_socket_check_bandwidth(ioa_socket_handle s, ioa_network_buffer_handle nb
       uint8_t *buf = ioa_network_buffer_data(nbh);
       if (stun_is_command_message_str(buf, sz)) {
         uint16_t method = stun_get_method_str(buf, sz);
+        //printf("DEBUG: Paquete STUN recibido, primeros bytes: %02x %02x %02x %02x, len=%d, método=%04x\n",
+      //  buf[0], buf[1], buf[2], buf[3], sz, method);
         if ((method != STUN_METHOD_SEND) && (method != STUN_METHOD_DATA)) {
           traffic = &(s->control_traffic);
         }
@@ -1666,7 +1670,7 @@ void detach_socket_net_data(ioa_socket_handle s) {
 
 void close_ioa_socket(ioa_socket_handle s) {
   if (s) {
-
+    printf("CLOSING SOCKET: %p, session=%p, sub_session=%p, fd=%d\n", s, s->session, s->sub_session, s->fd);
     if (s->magic != SOCKET_MAGIC) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "!!! %s wrong magic on socket: %p, st=%d, sat=%d\n", __FUNCTION__, s, s->st,
                     s->sat);
@@ -1706,6 +1710,7 @@ void close_ioa_socket(ioa_socket_handle s) {
     close_socket_net_data(s);
 
     if (s->session && s->session->client_socket == s) {
+      printf("Detaching client socket from super session\n");
       // Detaching client socket from super session to prevent mem corruption
       // in case client_to_be_allocated_timeout_handler gets triggered
       s->session->client_socket = NULL;
@@ -2183,7 +2188,7 @@ int udp_recvfrom(evutil_socket_t fd, ioa_addr *orig_addr, const ioa_addr *like_a
   do {
     len = my_recvfrom(fd, buffer, buf_size, flags, (struct sockaddr *)orig_addr, (socklen_t *)&slen);
     if(len > 0) {
-      printf("DEBUG: udp_recvfrom received %d bytes\n", len);
+     // printf("DEBUG: udp_recvfrom received %d bytes\n", len);
     }
   } while (len < 0 && socket_eintr());
   if (len < 0 && errcode) {
@@ -2215,7 +2220,6 @@ try_again:
   do {
     len = my_recvmsg(fd, &msg, flags);
   } while (len < 0 && socket_eintr());
-
 #if defined(MSG_ERRQUEUE)
 
   if (flags & MSG_ERRQUEUE) {
@@ -2538,7 +2542,7 @@ static ssize_t socket_parse_proxy(ioa_socket_handle s, uint8_t *buf, size_t len)
 }
 
 static int socket_input_worker(ioa_socket_handle s) {
-  printf("DEBUG: socket_input_worker: fd=%d, st=%d, sat=%d\n", s ? s->fd : -1, s ? s->st : -1, s ? s->sat : -1);
+  //printf("DEBUG: socket_input_worker: fd=%d, st=%d, sat=%d\n", s ? s->fd : -1, s ? s->st : -1, s ? s->sat : -1);
   int len = 0;
   int ret = 0;
   size_t app_msg_len = 0;
@@ -2887,7 +2891,7 @@ try_start:
 }
 
 static void socket_input_handler(evutil_socket_t fd, short what, void *arg) {
-  printf("Entrando en %s\n", __FUNCTION__);
+  //printf("Entrando en %s\n", __FUNCTION__);
 
   if (!(what & EV_READ)) {
     return;
@@ -2974,9 +2978,9 @@ void close_ioa_socket_after_processing_if_necessary(ioa_socket_handle s) {
 
 void socket_input_handler_fstack(int fd, void *arg) {
   ioa_socket_handle s = (ioa_socket_handle)arg;
-  printf("DEBUG: socket_input_handler_fstack: fd=%d, st=%d, sat=%d\n", fd, s ? s->st : -1, s ? s->sat : -1);
+  //printf("DEBUG: socket_input_handler_fstack: fd=%d, st=%d, sat=%d\n", fd, s ? s->st : -1, s ? s->sat : -1);
   if (!s) {
-    read_spare_buffer(fd);  // opcional: tu lógica de limpiar datos
+    read_spare_buffer(fd);
     return;
   }
 
@@ -2991,14 +2995,16 @@ void socket_input_handler_fstack(int fd, void *arg) {
     return;
   }
 
-  if (!ioa_socket_tobeclosed(s)) {
-    if (socket_input_worker(s) <= 0) {
-      // Si worker falla, marca para cerrar
-      s->tobeclosed = 1;
+  size_t cycle = 0;
+  do {
+    if (ioa_socket_tobeclosed(s)) {
+      read_spare_buffer(fd);
+      break;
     }
-  } else {
-    read_spare_buffer(fd);
-  }
+    if (socket_input_worker(s) <= 0) {
+      break;
+    }
+  } while ((cycle++ < 128) && !(s->done) && !(s->tobeclosed));
 
   if ((s->magic != SOCKET_MAGIC) || (s->done)) {
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "!!!%s (1) on socket: %p, st=%d, sat=%d\n", __FUNCTION__, s, s->st, s->sat);
@@ -3007,7 +3013,6 @@ void socket_input_handler_fstack(int fd, void *arg) {
 
   close_ioa_socket_after_processing_if_necessary(s);
 }
-
 
 void my_combined_handler(int fd, short what, void *arg) {
   ioa_socket_handle s = (ioa_socket_handle)arg;
@@ -3761,7 +3766,7 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
 #else
 
         // F-Stack: registra socket para eventos de lectura y escritura
-        printf("DEBUG: %s: registering TLS TCP socket %p for read/write events\n", __FUNCTION__, s);
+        //printf("DEBUG: %s: registering TLS TCP socket %p for read/write events\n", __FUNCTION__, s);
         struct MyEvent *ev = TRACE_EVENT_NEW(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
         if (my_event_add(ev, NULL) < 0) {
           TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: my_event_add failed for socket %p\n", __FUNCTION__, s);
@@ -3801,7 +3806,7 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
             #else
 
                     // F-Stack: registra socket para eventos de lectura y escritura 
-                    printf("DEBUG: %s: registering TLS socket %p for read/write events\n", __FUNCTION__, s);
+                    //printf("DEBUG: %s: registering TLS socket %p for read/write events\n", __FUNCTION__, s);
             struct MyEvent *ev = TRACE_EVENT_NEW(s->e->event_base, s->fd, EV_READ | EV_WRITE | EV_PERSIST, my_combined_handler, s);
             if (my_event_add(ev, NULL) < 0) {
               TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: my_event_add failed for socket %p\n", __FUNCTION__, s);
@@ -3823,8 +3828,8 @@ int register_callback_on_ioa_socket(ioa_engine_handle e, ioa_socket_handle s, in
 
       s->read_cb = cb;
       s->read_ctx = ctx;
-      printf("DEBUG: %s: registered callback on socket %p, event_type=%d, cb=%p, ctx=%p\n", __FUNCTION__, s, event_type,
-             cb, ctx);
+      //printf("DEBUG: %s: registered callback on socket %p, event_type=%d, cb=%p, ctx=%p\n", __FUNCTION__, s, event_type,
+            //  cb, ctx);
       return 0;
     }
   }

@@ -759,7 +759,7 @@ void release_allocation_quota(uint8_t *user, int oauth, uint8_t *realm) {
 //////////////////////////////////
 
 int add_static_user_account(char *user) {
-  printf("DEBUG: add_static_user_account called for user='%s'\n", user);
+  //printf("DEBUG: add_static_user_account called for user='%s'\n", user);
   /* Realm is either default or empty for users taken from file or command-line */
   if (!user || turn_params.use_auth_secret_with_timestamp) {
     return -1;
@@ -822,7 +822,7 @@ int add_static_user_account(char *user) {
   // later.. value argument (the key variable) has ownership transfered into this function
   ur_string_map_put(turn_params.default_users_db.ram_db.static_accounts, (ur_string_map_key_type)usname,
                     (ur_string_map_value_type)*key);
-                    printf("DEBUG: Usuario '%s' añadido a static_accounts\n", usname);
+                    //printf("DEBUG: Usuario '%s' añadido a static_accounts\n", usname);
   ur_string_map_unlock(turn_params.default_users_db.ram_db.static_accounts);
 
   turn_params.default_users_db.ram_db.users_number++;

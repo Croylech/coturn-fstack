@@ -129,7 +129,7 @@ void admin_server_receive_message(
     listener_fifo_t *lf,
   #endif
     void *ptr);
-
+//void admin_server_receive_message( void *data, void *ptr);
 void https_admin_server_receive_message(
 #ifndef USE_FSTACK
     struct bufferevent *bev,
@@ -137,6 +137,7 @@ void https_admin_server_receive_message(
     listener_fifo_t *lf,
 #endif
     void *ptr);
+//void https_admin_server_receive_message(void *data, void *ptr);
 int send_turn_session_info(struct turn_session_info *tsi);
 void send_https_socket(ioa_socket_handle s);
 

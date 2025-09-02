@@ -137,6 +137,15 @@ ADD_CUSTOM_TARGET(uninstall
 
 add_subdirectory(src)
 
+if(USE_FSTACK)
+    # Compilar ff_top
+#add_subdirectory(f-stack/tools/arp)
+add_subdirectory(f-stack/tools/top)
+#add_subdirectory(f-stack/tools/ifconfig)
+#add_subdirectory(f-stack/tools/netstat)
+
+endif()
+
 CONFIGURE_FILE(
     "${CMAKE_SOURCE_DIR}/cmake/coturnConfig.cmake.in"
     "${CMAKE_BINARY_DIR}/coturnConfig.cmake"
