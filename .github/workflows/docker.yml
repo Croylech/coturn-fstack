@@ -34,7 +34,7 @@ jobs:
           - s390x
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0  # for correct image labeling via `git describe --tags`
       # TODO: Try remove once `moby/buildkit` image upgrades its default QEMU version.
@@ -105,7 +105,7 @@ jobs:
             arch: s390x
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: docker/setup-qemu-action@v3
       - run: make npm.install
         working-directory: docker/coturn/
@@ -157,7 +157,7 @@ jobs:
         dist: ["alpine", "debian"]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Parse Docker image name from Git repository name
         id: image
@@ -267,7 +267,7 @@ jobs:
     needs: ["push"]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Parse semver versions from Git tag
         id: semver
